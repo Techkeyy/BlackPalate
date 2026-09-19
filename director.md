@@ -113,6 +113,12 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 - **OAuth readiness**: redirect URI present and canonical; scopes minimal (`read:profile read:user_checkins`, no custom override); PKCE/state HttpOnly flow verified in code. Prod `/api/auth/login` → 307 to `https://api.staging.blackbird.xyz/oauth/authorize` (Vercel env applied, latest deploy serving). No owner authorization performed.
 - **Needed from owner**: valid Flynet API key for the intended environment (current value rejected as invalid/revoked on both), or confirm production-vs-staging intent. Do NOT call finished.
 
+## UX Hotfix: Restaurant Auth Gate (2026-09-19)
+- Signed-out/diner users hitting Create Tasting or Restaurant Studio now see an auth gate ("Create tastings for your restaurant" + Continue with Google + Back to marketplace) instead of the builder. Official `authClient.signIn.social` only; no manual URLs.
+- Intent preserved via `sessionStorage` (`bp_pending_restaurant_nav`); restored after restaurant auth in `loadData`. No workspace → studio empty state offers Create Restaurant Workspace (no auto-invented venues). Sign-out clears session → gate returns. Refresh keeps session via Neon cookie.
+- Flynet labels neutralized ("Flynet: Connecting", "Integration Pending"); approval-blocked copy removed from UI.
+- Do NOT call finished: Google UAT + Flynet proofs still pending.
+
 ## Next Recommended Action
 Awaiting Blackbird admin approval in Flynet Make. Once approved:
 1. Generate Staging API key (`fly_test_...`) and OAuth Client ID / Secret with redirect URI `https://blackpalate.vercel.app/api/auth/callback`.

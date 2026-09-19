@@ -183,6 +183,114 @@ export default function BlackPalateApp() {
   const [synthesisMode, setSynthesisMode] = useState<string | null>(null);
   const [loadingSynthesis, setLoadingSynthesis] = useState(false);
 
+  // Restaurant areas require a signed-in RESTAURANT operator; anything else sees the auth gate.
+  const needsRestaurantGate =
+    (activeNav === 'create-tasting' || activeNav === 'campaign-studio') &&
+    !(isAuthenticated && authRole === 'RESTAURANT');
+
+  // Preserve restaurant intent across the Google redirect (sessionStorage survives same-origin navigation).
+  useEffect(() => {
+    try {
+      if (
+        (activeNav === 'create-tasting' || activeNav === 'campaign-studio') &&
+        !(isAuthenticated && authRole === 'RESTAURANT')
+      ) {
+        sessionStorage.setItem('bp_pending_restaurant_nav', activeNav);
+      }
+    } catch {
+      // Storage unavailable: intent simply won't survive the redirect.
+    }
+  }, [activeNav, isAuthenticated, authRole]);
+
+  function consumePendingRestaurantNav() {
+    try {
+      const pending = sessionStorage.getItem('bp_pending_restaurant_nav');
+      sessionStorage.removeItem('bp_pending_restaurant_nav');
+      if (pending === 'create-tasting' || pending === 'campaign-studio') {
+        setActiveNav(pending);
+      }
+    } catch {
+      // Storage unavailable: stay on the current view.
+    }
+  }
+
+  function renderRestaurantAuthGate() {
+    return (
+      <main
+        style={{
+          maxWidth: '640px',
+          margin: '0 auto',
+          padding: '80px 24px',
+          textAlign: 'center',
+        }}
+      >
+        <div
+          role="alert"
+          style={{
+            backgroundColor: '#121212',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '16px',
+            padding: '48px 36px',
+          }}
+        >
+          <div
+            style={{
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              backgroundColor: 'rgba(245, 158, 11, 0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 20px auto',
+              color: '#F59E0B',
+            }}
+          >
+            <Utensils size={26} />
+          </div>
+          <h2 style={{ fontSize: '22px', fontWeight: 800, margin: '0 0 10px 0', color: '#F5F5F4' }}>
+            Create tastings for your restaurant
+          </h2>
+          <p style={{ fontSize: '14px', color: '#A8A29E', lineHeight: 1.6, margin: '0 0 28px 0' }}>
+            Sign in to create tasting missions, manage applicants, and review feedback.
+          </p>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => handleOperatorLogin()}
+              style={{
+                padding: '12px 24px',
+                backgroundColor: '#F59E0B',
+                color: '#080808',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Continue with Google
+            </button>
+            <button
+              onClick={() => setActiveNav('discover')}
+              style={{
+                padding: '12px 20px',
+                backgroundColor: '#1C1C1C',
+                color: '#D6D3D1',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Back to marketplace
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   useEffect(() => {
     loadData();
   }, []);
@@ -216,6 +324,7 @@ export default function BlackPalateApp() {
             if (meData.workspaces?.length > 0) {
               setActiveWorkspace(meData.workspaces[0]);
             }
+            consumePendingRestaurantNav();
           } else if (meData.role === 'DINER') {
             setUserProfile(meData.profile);
           }
@@ -937,7 +1046,7 @@ export default function BlackPalateApp() {
                     gap: '6px',
                     color: '#A8A29E',
                   }}
-                  title="Flynet Maker access awaiting Blackbird admin approval"
+                  title="Flynet Blackbird integration status"
                 >
                   <span
                     style={{
@@ -947,7 +1056,7 @@ export default function BlackPalateApp() {
                       backgroundColor: '#F59E0B',
                     }}
                   />
-                  <span>Flynet: Awaiting Approval</span>
+                  <span>Flynet: Connecting</span>
                 </div>
               </div>
             )}
@@ -2676,12 +2785,11 @@ export default function BlackPalateApp() {
                   }}
                 >
                   <AlertCircle size={15} color="#F59E0B" />
-                  Flynet Status: Awaiting Admin Approval
+                  Flynet Status: Integration Pending
                 </div>
                 <div style={{ color: '#FDE68A', fontSize: '12px', lineHeight: '1.5' }}>
-                  Blackbird dining history verification is temporarily unavailable
-                  while Flynet access is being activated by Blackbird admin. Tasting
-                  booking will unlock upon Blackbird approval.
+                  Blackbird dining history verification is being connected.
+                  Tasting qualification unlocks once live integration proofs pass.
                 </div>
               </div>
 
@@ -3356,6 +3464,9 @@ export default function BlackPalateApp() {
       {/* ========================================================================= */}
       {activeNav === 'create-tasting' && (
         <ErrorBoundary fallbackTitle="Tasting Mission Builder Unavailable">
+          {needsRestaurantGate ? (
+            renderRestaurantAuthGate()
+          ) : (
           <main
             style={{
               maxWidth: '1100px',
@@ -4405,8 +4516,9 @@ export default function BlackPalateApp() {
               )}
             </div>
           </div>
-        </main>
-      </ErrorBoundary>
+          </main>
+          )}
+        </ErrorBoundary>
       )}
 
       {/* ========================================================================= */}
@@ -4414,6 +4526,9 @@ export default function BlackPalateApp() {
       {/* ========================================================================= */}
       {activeNav === 'campaign-studio' && (
         <ErrorBoundary fallbackTitle="Restaurant Dashboard Unavailable" onReset={loadData}>
+          {needsRestaurantGate ? (
+            renderRestaurantAuthGate()
+          ) : (
           <main
             style={{
               maxWidth: '1280px',
@@ -4451,14 +4566,25 @@ export default function BlackPalateApp() {
                 }}
               >
                 <p style={{ fontSize: '15px', color: '#A8A29E', margin: '0 0 20px 0' }}>
-                  No tasting campaigns created yet for your restaurant workspace.
+                  {operatorWorkspaces.length === 0
+                    ? 'Create your restaurant workspace to start publishing tasting missions.'
+                    : 'No tasting campaigns created yet for your restaurant workspace.'}
                 </p>
-                <InteractiveButton
-                  onClick={() => setActiveNav('create-tasting')}
-                  variant="primary"
-                >
-                  Create Your First Tasting Mission
-                </InteractiveButton>
+                {operatorWorkspaces.length === 0 ? (
+                  <InteractiveButton
+                    onClick={() => setIsCreatingWorkspaceModalOpen(true)}
+                    variant="primary"
+                  >
+                    Create Restaurant Workspace
+                  </InteractiveButton>
+                ) : (
+                  <InteractiveButton
+                    onClick={() => setActiveNav('create-tasting')}
+                    variant="primary"
+                  >
+                    Create Your First Tasting Mission
+                  </InteractiveButton>
+                )}
               </div>
             ) : (
               <div
@@ -4879,8 +5005,9 @@ export default function BlackPalateApp() {
             </div>
           </div>
           )}
-        </main>
-      </ErrorBoundary>
+          </main>
+          )}
+        </ErrorBoundary>
       )}
 
       {/* ========================================================================= */}
@@ -5088,7 +5215,7 @@ export default function BlackPalateApp() {
                       fontWeight: '700',
                     }}
                   >
-                    IMPLEMENTED / AWAITING APPROVAL
+                    IMPLEMENTED / INTEGRATION PENDING
                   </td>
                 </tr>
               </tbody>
