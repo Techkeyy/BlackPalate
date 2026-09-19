@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { evaluateQualification, QualificationRule } from '@/lib/qualification';
-import { createFlynetMemberClient } from '@/lib/flynet';
-import { resolveOrCreateFlynetDinerUser } from '@/lib/auth';
+import { resolveRequestIdentity } from '@/lib/auth/resolve';
 import { safeError, safeCatch } from '@/lib/api-errors';
 
 export async function POST(
@@ -20,43 +19,17 @@ export async function POST(
       return safeError(400, 'CAMPAIGN_FULL', 'campaign capacity reached');
     }
 
-    // 1. Authenticate member via HttpOnly session cookie
-    const cookieHeader = req.headers.get('cookie') || '';
-    const cookies = Object.fromEntries(
-      cookieHeader.split(';').map(c => {
-        const [k, v] = c.trim().split('=');
-        return [k, decodeURIComponent(v || '')];
-      })
-    );
-    const accessToken = cookies['bp_access_token'];
-
-    // If no active Blackbird session token exists: fail closed with truthful message
-    if (!accessToken) {
+    // 1. Authenticate the diner through the shared identity service
+    // (same session source as /api/auth/me and /api/user/tastings).
+    const identity = await resolveRequestIdentity(req);
+    if (!identity.authenticated || identity.role !== 'DINER') {
       return safeError(503, 'FLYNET_UNAVAILABLE', 'apply without Blackbird session');
     }
 
-    let dinerFlynetId: string;
-    let dinerName: string;
-    let checkIns: any[] = [];
-    let internalUser: any;
-
-    try {
-      const member = createFlynetMemberClient(accessToken);
-      const profile = await member.getProfile();
-      dinerFlynetId = profile.id;
-      dinerName = (profile as any).display_name || (profile as any).name || (profile as any).username || profile.id;
-
-      const checkInsRes = await member.listCheckIns({ page: 0, pageSize: 50 });
-      checkIns = checkInsRes.checkIns || [];
-
-      // Resolve or create internal BlackPalate user
-      internalUser = await resolveOrCreateFlynetDinerUser({
-        id: profile.id,
-        displayName: dinerName,
-      });
-    } catch {
-      return safeError(503, 'FLYNET_UNAVAILABLE', 'Flynet profile/check-ins fetch failed');
-    }
+    const dinerFlynetId: string = identity.flynetUserId;
+    const dinerName: string = identity.dinerName;
+    const checkIns: any[] = identity.checkIns;
+    const internalUser = identity.user;
 
     // 2. Build deterministic qualification rules
     const rules: QualificationRule[] = [

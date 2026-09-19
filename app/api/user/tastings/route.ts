@@ -1,45 +1,17 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
-import { createFlynetMemberClient } from '@/lib/flynet';
-import { getAuthenticatedOperator, resolveOrCreateFlynetDinerUser } from '@/lib/auth';
+import { resolveRequestIdentity } from '@/lib/auth/resolve';
 import { safeCatch } from '@/lib/api-errors';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   try {
-    const cookieHeader = req.headers.get('cookie') || '';
-    const cookies = Object.fromEntries(
-      cookieHeader.split(';').map(c => {
-        const [k, v] = c.trim().split('=');
-        return [k, decodeURIComponent(v || '')];
-      })
-    );
-    const accessToken = cookies['bp_access_token'];
-
-    let userId: string | null = null;
-
-    if (accessToken) {
-      try {
-        const member = createFlynetMemberClient(accessToken);
-        const profile = await member.getProfile();
-        const user = await resolveOrCreateFlynetDinerUser({
-          id: profile.id,
-          displayName: (profile as any).display_name || (profile as any).name,
-        });
-        userId = user.id;
-      } catch {
-        userId = null;
-      }
-    } else {
-      const operatorCtx = await getAuthenticatedOperator(req);
-      if (operatorCtx) {
-        userId = operatorCtx.user.id;
-      }
-    }
+    // Same session source as every protected route: shared identity resolution.
+    const identity = await resolveRequestIdentity(req);
 
     // Unauthenticated state: Return empty state safely without exposing any other user's records
-    if (!userId) {
+    if (!identity.authenticated) {
       return NextResponse.json({
         ok: true,
         authenticated: false,
@@ -51,6 +23,8 @@ export async function GET(req: Request) {
         },
       });
     }
+
+    const userId = identity.user.id;
 
     const userApps = await db.getUserApplications(userId);
 

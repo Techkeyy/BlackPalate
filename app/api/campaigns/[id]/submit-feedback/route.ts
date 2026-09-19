@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
-import { createFlynetDiscoveryClient, createFlynetMemberClient } from '@/lib/flynet';
-import { resolveOrCreateFlynetDinerUser } from '@/lib/auth';
+import { createFlynetDiscoveryClient } from '@/lib/flynet';
+import { resolveRequestIdentity } from '@/lib/auth/resolve';
 import { safeError, safeCatch } from '@/lib/api-errors';
 
 export async function POST(
@@ -15,33 +15,15 @@ export async function POST(
       return safeError(400, 'VALIDATION');
     }
 
-    // 1. Authenticate member from HttpOnly session cookie
-    const cookieHeader = req.headers.get('cookie') || '';
-    const cookies = Object.fromEntries(
-      cookieHeader.split(';').map(c => {
-        const [k, v] = c.trim().split('=');
-        return [k, decodeURIComponent(v || '')];
-      })
-    );
-    const accessToken = cookies['bp_access_token'];
-
-    if (!accessToken) {
+    // 1. Authenticate the diner through the shared identity service
+    // (same session source as /api/auth/me and /api/user/tastings).
+    const identity = await resolveRequestIdentity(req);
+    if (!identity.authenticated || identity.role !== 'DINER') {
       return safeError(401, 'UNAUTHORIZED', 'feedback without Blackbird session');
     }
 
-    let authenticatedDinerId: string;
-    let internalUser: any;
-    try {
-      const member = createFlynetMemberClient(accessToken);
-      const profile = await member.getProfile();
-      authenticatedDinerId = profile.id;
-      internalUser = await resolveOrCreateFlynetDinerUser({
-        id: profile.id,
-        displayName: (profile as any).display_name || (profile as any).name,
-      });
-    } catch {
-      return safeError(401, 'UNAUTHORIZED', 'invalid/expired Blackbird session on feedback');
-    }
+    const authenticatedDinerId: string = identity.flynetUserId;
+    const internalUser = identity.user;
 
     // 2. Load authoritative campaign from database
     const campaign = await db.getCampaignById(params.id);

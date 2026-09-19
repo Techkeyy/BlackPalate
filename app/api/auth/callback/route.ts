@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createFlynetOAuth, getFlynetConfig } from '@/lib/flynet';
+import { getCookie } from '@/lib/cookies';
+import {
+  flynetLoginCookies,
+  OAUTH_VERIFIER_COOKIE,
+  OAUTH_STATE_COOKIE,
+} from '@/lib/auth/session-cookies';
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -23,17 +29,11 @@ export async function GET(req: Request) {
     );
   }
 
-  // Retrieve code_verifier and state from HttpOnly cookies
+  // Retrieve code_verifier and state from HttpOnly cookies (robust parser:
+  // values may legitimately contain '=' and must never be truncated).
   const cookieHeader = req.headers.get('cookie') || '';
-  const cookies = Object.fromEntries(
-    cookieHeader.split(';').map(c => {
-      const [k, v] = c.trim().split('=');
-      return [k, decodeURIComponent(v || '')];
-    })
-  );
-
-  const storedVerifier = cookies['bp_oauth_verifier'];
-  const storedState = cookies['bp_oauth_state'];
+  const storedVerifier = getCookie(cookieHeader, OAUTH_VERIFIER_COOKIE);
+  const storedState = getCookie(cookieHeader, OAUTH_STATE_COOKIE);
 
   if (!storedState || storedState !== state) {
     return NextResponse.redirect(
@@ -63,30 +63,26 @@ export async function GET(req: Request) {
 
     const response = NextResponse.redirect(new URL('/?oauth_success=true', req.url));
 
-    // Token-Mediating Backend Pattern:
-    // 1. Refresh token lives in HttpOnly secure cookie scoped to /api/auth
-    if (tokens.refresh_token) {
-      response.cookies.set('bp_refresh_token', tokens.refresh_token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/api/auth',
-        maxAge: 30 * 24 * 3600, // 30 days
-      });
+    // Token-Mediating Backend Pattern via the single session-cookie source of
+    // truth: access token on Path '/' (product routes consume it), refresh
+    // token scoped to /api/auth. HttpOnly is never weakened.
+    const isProd = process.env.NODE_ENV === 'production';
+    const { access, refresh } = flynetLoginCookies(
+      {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        expires_in: tokens.expires_in,
+      },
+      isProd
+    );
+    response.cookies.set(access.name, access.value, access.options as any);
+    if (refresh) {
+      response.cookies.set(refresh.name, refresh.value, refresh.options as any);
     }
 
-    // 2. Short-lived session token (cookie for SSR, in-memory on client)
-    response.cookies.set('bp_access_token', tokens.access_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: tokens.expires_in || 3600,
-    });
-
     // Clean up one-time PKCE verifier cookies
-    response.cookies.delete('bp_oauth_verifier');
-    response.cookies.delete('bp_oauth_state');
+    response.cookies.delete(OAUTH_VERIFIER_COOKIE);
+    response.cookies.delete(OAUTH_STATE_COOKIE);
 
     return response;
   } catch (err: any) {

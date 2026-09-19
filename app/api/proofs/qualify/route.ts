@@ -10,20 +10,14 @@ import {
   QualificationRule,
 } from '@/lib/qualification';
 import { proofGuard, safeError } from '@/lib/api-errors';
+import { getCookie } from '@/lib/cookies';
+import { ACCESS_COOKIE_NAME } from '@/lib/auth/session-cookies';
 
 export async function POST(req: Request) {
   const blocked = proofGuard();
   if (blocked) return blocked;
 
-  const cookieHeader = req.headers.get('cookie') || '';
-  const cookies = Object.fromEntries(
-    cookieHeader.split(';').map(c => {
-      const [k, v] = c.trim().split('=');
-      return [k, decodeURIComponent(v || '')];
-    })
-  );
-
-  const accessToken = cookies['bp_access_token'];
+  const accessToken = getCookie(req.headers.get('cookie'), ACCESS_COOKIE_NAME);
 
   if (!accessToken) {
     return safeError(401, 'UNAUTHORIZED', 'qualify proof without session');

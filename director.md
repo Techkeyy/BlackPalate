@@ -126,6 +126,12 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 - UI: `live-demo` view (LIVE badge, venue, anonymized activity, campaign picker + honest MATCH/NO_MATCH, predicate demo, illustrative preview labeled, proof badge, Continue with Blackbird always present); entry under diner connect with region-neutral copy. Status now "Flynet API: Live" + member-login distinction; approval copy gone.
 - Reward still BLOCKED (0 FLY). Do NOT call finished: member OAuth UAT pending.
 
+## Directive 002J Session Persistence Fix (2026-09-19)
+- **Flynet root causes (code-verified)**: (1) `split('=')` cookie truncation in 7 routes — shared `lib/cookies.ts` now; (2) silent me-failure + page ignoring `?oauth_success/?error` — OAuth result now surfaced once with safe copy; (3) gate/CTA rendered before resolve — `authLoading` + "Finishing sign-in..." + pure gate helpers (`lib/auth/gate.ts`); (4) diner logout never cleared `bp_*` — new `POST /api/auth/logout` (Path-mirrored clears) + frontend calls Neon signOut AND Flynet logout.
+- **Restaurant root causes**: same silent-failure/gate issues + per-route Neon bridging divergence — central `resolveRequestIdentity` (`lib/auth/resolve.ts`, Neon-first, failures isolated per source, never merged) now serves me/tastings/apply/feedback. Cookie attrs verified correct in code (access Path `/`, refresh `/api/auth`, HttpOnly, Secure-prod, Lax).
+- Residual unknowns needing owner session: exact exchange-time failure (Vercel redirect_uri value, token/profile errors in Vercel logs), owner browser cookie state.
+- Tests: 12/12 session suite (parser, attrs, precedence, gate, refresh-stability, logout clears). Do NOT call finished: both real login UATs pending re-test.
+
 ## Next Recommended Action
 Awaiting Blackbird admin approval in Flynet Make. Once approved:
 1. Generate Staging API key (`fly_test_...`) and OAuth Client ID / Secret with redirect URI `https://blackpalate.vercel.app/api/auth/callback`.

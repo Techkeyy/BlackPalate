@@ -44,6 +44,10 @@ import {
   sameVenueAttendance,
   LiveDemoCheckIn,
 } from '@/lib/live-demo';
+import {
+  shouldShowRestaurantGate,
+  shouldShowAuthLoading,
+} from '@/lib/auth/gate';
 
 interface Question {
   id: string;
@@ -109,6 +113,7 @@ export default function BlackPalateApp() {
   const [operatorWorkspaces, setOperatorWorkspaces] = useState<any[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<UserSafeError | null>(null);
   const [publishError, setPublishError] = useState<UserSafeError | null>(null);
@@ -202,9 +207,18 @@ export default function BlackPalateApp() {
   const [demoCampaignId, setDemoCampaignId] = useState<string | null>(null);
 
   // Restaurant areas require a signed-in RESTAURANT operator; anything else sees the auth gate.
-  const needsRestaurantGate =
-    (activeNav === 'create-tasting' || activeNav === 'campaign-studio') &&
-    !(isAuthenticated && authRole === 'RESTAURANT');
+  // The gate NEVER renders while identity is still resolving (authLoading).
+  const needsRestaurantGate = shouldShowRestaurantGate({
+    activeNav,
+    isAuthenticated,
+    authRole,
+    authLoading,
+  });
+  const showAuthResolving = shouldShowAuthLoading({
+    activeNav,
+    authLoading,
+    isAuthenticated,
+  });
 
   // Preserve restaurant intent across the Google redirect (sessionStorage survives same-origin navigation).
   useEffect(() => {
@@ -232,8 +246,7 @@ export default function BlackPalateApp() {
     }
   }
 
-  function renderRestaurantAuthGate() {
-    return (
+  function renderRestaurantAuthGate() {    return (
       <main
         style={{
           maxWidth: '640px',
@@ -309,13 +322,47 @@ export default function BlackPalateApp() {
     );
   }
 
+  function renderAuthResolving() {
+    return (
+      <main
+        style={{
+          maxWidth: '640px',
+          margin: '0 auto',
+          padding: '80px 24px',
+          textAlign: 'center',
+        }}
+      >
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            backgroundColor: '#121212',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '16px',
+            padding: '48px 36px',
+            fontSize: '14px',
+            color: '#A8A29E',
+          }}
+        >
+          Finishing sign-in...
+        </div>
+      </main>
+    );
+  }
+
   useEffect(() => {
-    loadData();
+    loadData()
+      .then((outcome) => handleOAuthReturn(outcome))
+      .catch(() => undefined);
   }, []);
 
   async function loadData() {
     setLoading(true);
     setFetchError(null);
+    let sessionOutcome: { authenticated: boolean; role: 'RESTAURANT' | 'DINER' | null } = {
+      authenticated: false,
+      role: null,
+    };
     try {
       // 1. Fetch campaigns from PostgreSQL
       const campRes = await fetch('/api/campaigns');
@@ -329,28 +376,34 @@ export default function BlackPalateApp() {
         setFetchError(mapErrorToUserMessage(campData, 'fetch_data'));
       }
 
-      // 2. Fetch authenticated session
-      const meRes = await fetch('/api/auth/me').catch(() => null);
-      if (meRes && meRes.ok) {
-        const meData = await meRes.json();
-        if (meData.authenticated) {
-          setIsAuthenticated(true);
-          setAuthRole(meData.role);
-          setSessionUser(meData.user);
-          if (meData.role === 'RESTAURANT') {
-            setOperatorWorkspaces(meData.workspaces || []);
-            if (meData.workspaces?.length > 0) {
-              setActiveWorkspace(meData.workspaces[0]);
+      // 2. Fetch authenticated session (authoritative; drives authLoading)
+      setAuthLoading(true);
+      try {
+        const meRes = await fetch('/api/auth/me').catch(() => null);
+        if (meRes && meRes.ok) {
+          const meData = await meRes.json();
+          if (meData.authenticated) {
+            setIsAuthenticated(true);
+            setAuthRole(meData.role);
+            setSessionUser(meData.user);
+            sessionOutcome = { authenticated: true, role: meData.role };
+            if (meData.role === 'RESTAURANT') {
+              setOperatorWorkspaces(meData.workspaces || []);
+              if (meData.workspaces?.length > 0) {
+                setActiveWorkspace(meData.workspaces[0]);
+              }
+              consumePendingRestaurantNav();
+            } else if (meData.role === 'DINER') {
+              setUserProfile(meData.profile);
             }
-            consumePendingRestaurantNav();
-          } else if (meData.role === 'DINER') {
-            setUserProfile(meData.profile);
+          } else {
+            setIsAuthenticated(false);
+            setAuthRole(null);
+            setSessionUser(null);
           }
-        } else {
-          setIsAuthenticated(false);
-          setAuthRole(null);
-          setSessionUser(null);
         }
+      } finally {
+        setAuthLoading(false);
       }
 
       // 3. Fetch user tastings
@@ -364,6 +417,38 @@ export default function BlackPalateApp() {
       setFetchError(mapErrorToUserMessage(err, 'fetch_data'));
     } finally {
       setLoading(false);
+    }
+    return sessionOutcome;
+  }
+
+  // Surfaces the OAuth redirect result exactly once per return. Redirect alone
+  // is never treated as success: the session outcome above is authoritative.
+  function handleOAuthReturn(outcome: { authenticated: boolean; role: string | null }) {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const oauthSuccess = params.get('oauth_success');
+      const oauthError = params.get('error');
+      if (!oauthSuccess && !oauthError) return;
+
+      if (oauthError) {
+        const userErr =
+          oauthError === 'oauth_provider_error'
+            ? mapErrorToUserMessage('FLYNET_UNAVAILABLE', 'auth')
+            : mapErrorToUserMessage('AUTH_REQUIRED', 'auth');
+        setStatusBanner({ type: 'warning', text: userErr.message });
+      } else if (oauthSuccess && !outcome.authenticated) {
+        // Blackbird redirect completed but no session could be established.
+        setStatusBanner({
+          type: 'warning',
+          text: "We couldn't finish signing you in. Try again.",
+        });
+      }
+      params.delete('oauth_success');
+      params.delete('error');
+      const clean = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+      window.history.replaceState(null, '', clean);
+    } catch {
+      // URL handling must never break the app shell.
     }
   }
 
@@ -408,13 +493,17 @@ export default function BlackPalateApp() {
     }
   }
 
-  // Handle Logout
+  // Handle Logout: clears BOTH sessions explicitly (Neon restaurant session
+  // via the official client, Flynet diner cookies via the server logout route).
   async function handleLogout() {
     try {
-      await authClient.signOut();
+      await authClient.signOut().catch(() => null);
+      await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null);
       setIsAuthenticated(false);
       setAuthRole(null);
       setSessionUser(null);
+      setUserProfile(null);
+      setUserApplications([]);
       setOperatorWorkspaces([]);
       setActiveWorkspace(null);
       setStatusBanner({ type: 'info', text: 'Signed out successfully.' });
@@ -939,9 +1028,24 @@ export default function BlackPalateApp() {
             </button>
           </nav>
 
-          {/* Account / Auth Actions */}
+          {/* Account / Auth Actions (no signed-out CTA while resolving) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {isAuthenticated && authRole === 'RESTAURANT' ? (
+            {authLoading && !isAuthenticated ? (
+              <div
+                role="status"
+                aria-live="polite"
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '20px',
+                  backgroundColor: '#121212',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  fontSize: '12px',
+                  color: '#A8A29E',
+                }}
+              >
+                Finishing sign-in...
+              </div>
+            ) : isAuthenticated && authRole === 'RESTAURANT' ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div
                   style={{
@@ -2904,6 +3008,22 @@ export default function BlackPalateApp() {
 
             {fetchError ? (
               <CalloutAlert error={fetchError} onAction={loadData} />
+            ) : showAuthResolving ? (
+              <div
+                role="status"
+                aria-live="polite"
+                style={{
+                  textAlign: 'center',
+                  padding: '64px 24px',
+                  backgroundColor: '#121212',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  fontSize: '14px',
+                  color: '#A8A29E',
+                }}
+              >
+                Finishing sign-in...
+              </div>
             ) : !isAuthenticated ? (
               <div
                 style={{
@@ -3540,7 +3660,7 @@ export default function BlackPalateApp() {
       {/* ========================================================================= */}
       {activeNav === 'create-tasting' && (
         <ErrorBoundary fallbackTitle="Tasting Mission Builder Unavailable">
-          {needsRestaurantGate ? (
+          {showAuthResolving ? (renderAuthResolving()) : needsRestaurantGate ? (
             renderRestaurantAuthGate()
           ) : (
           <main
@@ -4602,7 +4722,7 @@ export default function BlackPalateApp() {
       {/* ========================================================================= */}
       {activeNav === 'campaign-studio' && (
         <ErrorBoundary fallbackTitle="Restaurant Dashboard Unavailable" onReset={loadData}>
-          {needsRestaurantGate ? (
+          {showAuthResolving ? (renderAuthResolving()) : needsRestaurantGate ? (
             renderRestaurantAuthGate()
           ) : (
           <main

@@ -1,17 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createFlynetOAuth } from '@/lib/flynet';
 import { safeError } from '@/lib/api-errors';
+import { getCookie } from '@/lib/cookies';
+import { REFRESH_COOKIE_NAME } from '@/lib/auth/session-cookies';
 
 export async function POST(req: Request) {
-  const cookieHeader = req.headers.get('cookie') || '';
-  const cookies = Object.fromEntries(
-    cookieHeader.split(';').map(c => {
-      const [k, v] = c.trim().split('=');
-      return [k, decodeURIComponent(v || '')];
-    })
-  );
-
-  const refreshToken = cookies['bp_refresh_token'];
+  const refreshToken = getCookie(req.headers.get('cookie'), REFRESH_COOKIE_NAME);
 
   if (!refreshToken) {
     return safeError(401, 'UNAUTHORIZED', 'refresh without token');
