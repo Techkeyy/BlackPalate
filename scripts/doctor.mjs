@@ -40,10 +40,9 @@ for (const check of envChecks) {
   const val = process.env[check.name];
   const present = Boolean(val && val.trim().length > 0);
   const status = present ? 'PRESENT' : 'MISSING';
-  const prefix = present && check.name === 'FLYNET_API_KEY' ? ` (prefix: ${val.slice(0, 8)}...)` : '';
   
   if (present) {
-    console.log(`  [PASS] ${check.name.padEnd(32)}: ${status}${prefix}`);
+    console.log(`  [PASS] ${check.name.padEnd(32)}: ${status}`);
   } else if (check.required) {
     console.log(`  [WARN] ${check.name.padEnd(32)}: ${status} (${check.desc})`);
     missingRequired++;
