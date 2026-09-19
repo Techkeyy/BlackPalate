@@ -9,10 +9,12 @@ export interface Restaurant {
   updatedAt: string;
 }
 
+export type QuestionType = 'rating' | 'scale' | 'yes_no' | 'choice' | 'text';
+
 export interface FeedbackQuestion {
   id: string;
   prompt: string;
-  type: 'rating' | 'text' | 'choice';
+  type: QuestionType;
   options?: string[];
 }
 
@@ -21,15 +23,20 @@ export interface Campaign {
   title: string;
   description: string;
   dishFocus: string;
+  researchGoal?: string;
   restaurantId: string;
   restaurantName?: string;
   restaurantCuisine?: string[];
+  location?: string;
+  timing?: string; // e.g. "Tuesday · 7:00 PM" or "Flexible this week"
+  timeCommitment?: string; // e.g. "45 minutes"
   targetCuisines: string[];
   minTotalCheckIns: number;
+  minDistinctVenues?: number;
   minCuisineVisits: number;
   mustBeNewToVenue: boolean;
-  rewardFly: string; // whole FLY string e.g. "5"
-  rewardFlyWei?: string | null; // 18 decimals e.g. "5000000000000000000"
+  rewardFly: string; // whole FLY string e.g. "500" or "25"
+  rewardFlyWei?: string | null; // 18 decimals e.g. "25000000000000000000"
   maxSlots: number;
   filledSlots: number;
   status: 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'COMPLETED';
@@ -37,6 +44,16 @@ export interface Campaign {
   createdAt: string;
   updatedAt: string;
 }
+
+export type ApplicationStatus =
+  | 'QUALIFIED'
+  | 'JOINED'
+  | 'ATTENDANCE_PENDING'
+  | 'ATTENDANCE_VERIFIED'
+  | 'SUBMITTED'
+  | 'REWARD_PENDING'
+  | 'REWARDED'
+  | 'REJECTED';
 
 export interface Application {
   id: string;
@@ -47,10 +64,11 @@ export interface Application {
   qualificationProof?: {
     totalCheckIns: number;
     cuisineVisits: number;
+    distinctVenues?: number;
     isNewToVenue: boolean;
     qualifiedRuleSummary: string[];
   } | null;
-  status: 'QUALIFIED' | 'ATTENDED' | 'SUBMITTED' | 'REWARDED' | 'REJECTED';
+  status: ApplicationStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -101,4 +119,3 @@ export interface SynthesisReport {
   rawSubmissionCount: number;
   generatedAt: string;
 }
-
