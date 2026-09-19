@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { getAuthenticatedOperator } from '@/lib/auth';
 import { safeError, safeCatch } from '@/lib/api-errors';
+import { filterPublicMarketplaceCampaigns } from '@/lib/campaign-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,9 +15,17 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const restaurantId = searchParams.get('restaurantId') || undefined;
+    const surface = searchParams.get('surface') || 'marketplace';
 
     const campaigns = await db.getCampaigns(restaurantId);
-    return NextResponse.json({ ok: true, campaigns });
+    const visibleCampaigns =
+      surface === 'demo'
+        ? campaigns.filter(campaign => campaign.isDemo === true)
+        : surface === 'all'
+          ? campaigns
+          : filterPublicMarketplaceCampaigns(campaigns);
+
+    return NextResponse.json({ ok: true, campaigns: visibleCampaigns });
   } catch (err: any) {
     return safeCatch(err);
   }

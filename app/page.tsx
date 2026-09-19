@@ -122,6 +122,7 @@ export default function BlackPalateApp() {
 
   // Application Data States
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [demoCampaigns, setDemoCampaigns] = useState<Campaign[]>([]);
   const [selectedTasting, setSelectedTasting] = useState<Campaign | null>(null);
   const [userApplications, setUserApplications] = useState<Application[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
@@ -386,7 +387,7 @@ export default function BlackPalateApp() {
     };
     try {
       // 1. Fetch campaigns from PostgreSQL
-      const campRes = await fetch('/api/campaigns');
+      const campRes = await fetch('/api/campaigns?surface=marketplace');
       const campData = await campRes.json();
       if (campData.ok && campData.campaigns) {
         setCampaigns(campData.campaigns);
@@ -489,8 +490,18 @@ export default function BlackPalateApp() {
     setLiveFeedLoading(true);
     setLiveFeedError(null);
     try {
-      const res = await fetch('/api/demo/live-feed');
+      const [res, campaignRes] = await Promise.all([
+        fetch('/api/demo/live-feed'),
+        fetch('/api/campaigns?surface=demo'),
+      ]);
       const data = await res.json();
+      const campaignData = await campaignRes.json().catch(() => null);
+      if (campaignData?.ok && Array.isArray(campaignData.campaigns)) {
+        setDemoCampaigns(campaignData.campaigns);
+      } else {
+        setDemoCampaigns([]);
+      }
+
       if (data.ok && data.checkIns) {
         setLiveFeed(data);
         if (data.checkIns.length > 0 && !demoCheckInId) {
@@ -928,6 +939,17 @@ export default function BlackPalateApp() {
     }
   }
 
+  const cuisineFilters = Array.from(
+    new Set(
+      campaigns
+        .flatMap(camp => [...camp.targetCuisines, ...(camp.restaurantCuisine || [])])
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+  const effectiveCuisineFilter = cuisineFilters.includes(selectedCuisineFilter)
+    ? selectedCuisineFilter
+    : 'All';
+
   // Filtered campaigns
   const filteredCampaigns = campaigns.filter((camp) => {
     const matchesSearch =
@@ -938,13 +960,13 @@ export default function BlackPalateApp() {
         camp.restaurantName.toLowerCase().includes(searchQuery.toLowerCase()));
 
     const matchesCuisine =
-      selectedCuisineFilter === 'All' ||
+      effectiveCuisineFilter === 'All' ||
       camp.targetCuisines.some(
-        (c) => c.toLowerCase() === selectedCuisineFilter.toLowerCase()
+        (c) => c.toLowerCase() === effectiveCuisineFilter.toLowerCase()
       ) ||
       (camp.restaurantCuisine &&
         camp.restaurantCuisine.some(
-          (c) => c.toLowerCase() === selectedCuisineFilter.toLowerCase()
+          (c) => c.toLowerCase() === effectiveCuisineFilter.toLowerCase()
         ));
 
     return matchesSearch && matchesCuisine;
@@ -1037,20 +1059,7 @@ export default function BlackPalateApp() {
                 BLACK<span style={{ color: '#F59E0B' }}>PALATE</span>
               </span>
             </div>
-            <span
-              style={{
-                fontSize: '10px',
-                padding: '2px 8px',
-                borderRadius: '4px',
-                backgroundColor: '#181818',
-                color: '#A8A29E',
-                fontWeight: '700',
-                letterSpacing: '0.6px',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-              }}
-            >
-              CULINARY RESEARCH
-            </span>
+
           </div>
 
           {/* Primary Nav Links */}
@@ -1278,55 +1287,9 @@ export default function BlackPalateApp() {
                   </strong>
                 </span>
               </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: '20px',
-                    backgroundColor: '#121212',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    fontSize: '11px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    color: '#A8A29E',
-                  }}
-                  title="Flynet production API status"
-                >
-                  <span
-                    style={{
-                      width: '6px',
-                      height: '6px',
-                      borderRadius: '50%',
-                      backgroundColor: '#10B981',
-                      boxShadow: '0 0 8px rgba(16, 185, 129, 0.5)',
-                    }}
-                  />
-                  <span>Flynet API: Live</span>
-                </div>
-              </div>
-            )}
+            ) : null}
 
-            <button
-              onClick={() => setActiveNav('diagnostics')}
-              style={{
-                padding: '6px 10px',
-                borderRadius: '6px',
-                backgroundColor: '#181818',
-                color: '#A8A29E',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                fontSize: '12px',
-                cursor: 'pointer',
-                fontWeight: '600',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              <ShieldCheck size={13} />
-              Status
-            </button>
+
           </div>
         </div>
       </header>
@@ -2445,40 +2408,36 @@ export default function BlackPalateApp() {
                   />
                 </div>
 
-                {/* Cuisine Filter Pills */}
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  {[
-                    'All',
-                    'Italian',
-                    'Japanese',
-                    'Contemporary American',
-                    'Mexican',
-                  ].map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setSelectedCuisineFilter(c)}
-                      style={{
-                        padding: '8px 14px',
-                        borderRadius: '20px',
-                        border:
-                          selectedCuisineFilter === c
-                            ? '1px solid #F59E0B'
-                            : '1px solid rgba(255, 255, 255, 0.08)',
-                        backgroundColor:
-                          selectedCuisineFilter === c
-                            ? 'rgba(245, 158, 11, 0.15)'
-                            : '#121212',
-                        color: selectedCuisineFilter === c ? '#F59E0B' : '#A8A29E',
-                        fontSize: '12px',
-                        fontWeight: '700',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                      }}
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
+                {/* Cuisine filters are derived only from real marketplace campaigns. */}
+                {cuisineFilters.length > 0 && (
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {['All', ...cuisineFilters].map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => setSelectedCuisineFilter(c)}
+                        style={{
+                          padding: '8px 14px',
+                          borderRadius: '20px',
+                          border:
+                            effectiveCuisineFilter === c
+                              ? '1px solid #F59E0B'
+                              : '1px solid rgba(255, 255, 255, 0.08)',
+                          backgroundColor:
+                            effectiveCuisineFilter === c
+                              ? 'rgba(245, 158, 11, 0.15)'
+                              : '#121212',
+                          color: effectiveCuisineFilter === c ? '#F59E0B' : '#A8A29E',
+                          fontSize: '12px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2491,29 +2450,45 @@ export default function BlackPalateApp() {
                 </div>
               </div>
             ) : filteredCampaigns.length === 0 ? (
-            <div
-              style={{
-                textAlign: 'center',
-                padding: '80px 24px',
-                backgroundColor: '#121212',
-                borderRadius: '12px',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-              }}
-            >
-              <p style={{ fontSize: '16px', color: '#A8A29E', margin: '0 0 16px 0' }}>
-                No matching tasting opportunities found.
-              </p>
-              <InteractiveButton
-                onClick={() => {
-                  setSearchQuery('');
-                  setSelectedCuisineFilter('All');
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '80px 24px',
+                  backgroundColor: '#121212',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
                 }}
-                variant="secondary"
               >
-                Reset Search Filters
-              </InteractiveButton>
-            </div>
-          ) : (
+                <p style={{ fontSize: '18px', color: '#F5F5F4', margin: '0 0 10px 0' }}>
+                  {campaigns.length === 0 ? 'No live tastings yet.' : 'No matching tasting opportunities found.'}
+                </p>
+                {campaigns.length === 0 ? (
+                  <>
+                    <p style={{ fontSize: '14px', color: '#A8A29E', margin: '0 0 20px 0' }}>
+                      New restaurant research opportunities will appear here.
+                    </p>
+                    {isAuthenticated && authRole === 'RESTAURANT' && (
+                      <InteractiveButton
+                        onClick={() => setActiveNav('create-tasting')}
+                        variant="primary"
+                      >
+                        Create a Tasting
+                      </InteractiveButton>
+                    )}
+                  </>
+                ) : (
+                  <InteractiveButton
+                    onClick={() => {
+                      setSearchQuery('');
+                      setSelectedCuisineFilter('All');
+                    }}
+                    variant="secondary"
+                  >
+                    Reset Search Filters
+                  </InteractiveButton>
+                )}
+              </div>
+            ) : (
             <div
               style={{
                 display: 'grid',
@@ -5448,7 +5423,7 @@ export default function BlackPalateApp() {
             ) : liveFeed ? (
               <LiveDemoBody
                 feed={liveFeed}
-                campaigns={campaigns}
+                campaigns={demoCampaigns}
                 demoCheckInId={demoCheckInId}
                 setDemoCheckInId={setDemoCheckInId}
                 demoCampaignId={demoCampaignId}
@@ -5899,7 +5874,7 @@ function LiveDemoBody({
   const selectedCheckIn =
     checkIns.find((c) => c.id === demoCheckInId) || checkIns[0] || null;
   const demoCampaigns = campaigns.filter((c) => c.isDemo);
-  const selectable = demoCampaigns.length > 0 ? demoCampaigns : campaigns;
+  const selectable = demoCampaigns;
   const selectedCampaign =
     selectable.find((c) => c.id === demoCampaignId) || selectable[0] || null;
 
