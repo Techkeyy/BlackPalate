@@ -441,7 +441,6 @@ export const db = {
 
     inMemoryApplications.push(newApp);
 
-    // Increment filled slots safely
     const camp = inMemoryCampaigns.find(c => c.id === appData.campaignId);
     if (camp) {
       camp.filledSlots += 1;
@@ -461,7 +460,6 @@ export const db = {
   },
 
   async createFeedback(feedback: Omit<FeedbackSubmission, 'id' | 'submittedAt'>): Promise<FeedbackSubmission> {
-    // Duplicate check
     const existing = inMemoryFeedbacks.find(f => f.applicationId === feedback.applicationId);
     if (existing) {
       return existing;
