@@ -1,19 +1,15 @@
 import { NextResponse } from 'next/server';
 import { createFlynetDiscoveryClient, normalizeFlynetError } from '@/lib/flynet';
+import { proofGuard, safeError } from '@/lib/api-errors';
 
 export async function GET() {
+  const blocked = proofGuard();
+  if (blocked) return blocked;
+
   const discovery = createFlynetDiscoveryClient();
 
   if (!discovery) {
-    return NextResponse.json(
-      {
-        success: false,
-        proof: 'Proof A: API Key Restaurant Discovery',
-        status: 400,
-        error: 'FLYNET_API_KEY is not configured in server environment.',
-      },
-      { status: 400 }
-    );
+    return safeError(400, 'FLYNET_UNAVAILABLE', 'discovery proof without API key');
   }
 
   try {
@@ -37,15 +33,10 @@ export async function GET() {
     });
   } catch (err: any) {
     const norm = normalizeFlynetError(err);
-    return NextResponse.json(
-      {
-        success: false,
-        proof: 'Proof A: API Key Restaurant Discovery',
-        error: norm.message,
-        kind: norm.kind,
-        code: norm.code,
-      },
-      { status: norm.kind === 'unauthorized' ? 401 : 500 }
+    return safeError(
+      norm.kind === 'unauthorized' ? 401 : 500,
+      norm.kind === 'unauthorized' ? 'UNAUTHORIZED' : 'FLYNET_UNAVAILABLE',
+      norm
     );
   }
 }

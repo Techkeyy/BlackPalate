@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createFlynetOAuth } from '@/lib/flynet';
+import { safeError } from '@/lib/api-errors';
 
 export async function POST(req: Request) {
   const cookieHeader = req.headers.get('cookie') || '';
@@ -13,10 +14,7 @@ export async function POST(req: Request) {
   const refreshToken = cookies['bp_refresh_token'];
 
   if (!refreshToken) {
-    return NextResponse.json(
-      { error: 'No refresh token available.' },
-      { status: 401 }
-    );
+    return safeError(401, 'UNAUTHORIZED', 'refresh without token');
   }
 
   try {
@@ -42,10 +40,7 @@ export async function POST(req: Request) {
 
     return res;
   } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || 'Token refresh failed' },
-      { status: 401 }
-    );
+    return safeError(401, 'UNAUTHORIZED', err);
   }
 }
 

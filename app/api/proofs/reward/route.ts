@@ -1,35 +1,31 @@
 import { NextResponse } from 'next/server';
 import { createFlynetDiscoveryClient, normalizeFlynetError } from '@/lib/flynet';
+import { proofGuard, safeError } from '@/lib/api-errors';
 
 export async function POST(req: Request) {
+  const blocked = proofGuard();
+  if (blocked) return blocked;
+
   const discovery = createFlynetDiscoveryClient();
 
   if (!discovery) {
-    return NextResponse.json(
-      {
-        success: false,
-        proof: 'Proof G: Controlled FLY Reward & Idempotency',
-        status: 400,
-        error: 'FLYNET_API_KEY is not configured in server environment.',
-      },
-      { status: 400 }
-    );
+    return safeError(400, 'FLYNET_UNAVAILABLE', 'reward proof without API key');
   }
 
   const body = await req.json().catch(() => ({}));
-  const { targetUserId, idempotencyKey } = body;
+  const { targetUserId, proofRunId } = body;
 
   if (!targetUserId) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'targetUserId is required for controlled reward proof.',
-      },
-      { status: 400 }
-    );
+    return safeError(400, 'VALIDATION');
   }
 
-  const testKey = idempotencyKey || `blackpalate-proof-reward-${Date.now()}`;
+  // Stable deterministic idempotency per controlled proof run. Never timestamp-based:
+  // replaying the same proofRunId must return the same reward, proving idempotency.
+  if (!proofRunId || typeof proofRunId !== 'string') {
+    return safeError(400, 'VALIDATION');
+  }
+
+  const testKey = `blackpalate:proof-reward:${proofRunId}`;
 
   const rewardReq = {
     userId: targetUserId,
@@ -64,15 +60,10 @@ export async function POST(req: Request) {
     });
   } catch (err: any) {
     const norm = normalizeFlynetError(err);
-    return NextResponse.json(
-      {
-        success: false,
-        proof: 'Proof G: Controlled FLY Reward & Idempotency',
-        error: norm.message,
-        kind: norm.kind,
-        code: norm.code,
-      },
-      { status: norm.kind === 'forbidden' ? 403 : norm.kind === 'unauthorized' ? 401 : 500 }
+    return safeError(
+      norm.kind === 'forbidden' ? 403 : norm.kind === 'unauthorized' ? 401 : 500,
+      norm.kind === 'unauthorized' ? 'UNAUTHORIZED' : 'FLYNET_UNAVAILABLE',
+      norm
     );
   }
 }

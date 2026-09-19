@@ -30,6 +30,13 @@ import {
   InteractiveCard,
   InteractiveButton,
 } from '@/components/MotionPrimitives';
+import { CalloutAlert } from '@/components/CalloutAlert';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import {
+  mapErrorToUserMessage,
+  getRewardStatusDisplay,
+  UserSafeError,
+} from '@/lib/error-messages';
 
 interface Question {
   id: string;
@@ -69,6 +76,8 @@ interface Application {
   dinerFlynetId: string;
   dinerName?: string | null;
   status: string;
+  rewardStatus?: string;
+  rewardTxHash?: string | null;
   qualificationProof?: {
     totalCheckIns: number;
     cuisineVisits: number;
@@ -94,6 +103,14 @@ export default function BlackPalateApp() {
   const [activeWorkspace, setActiveWorkspace] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<UserSafeError | null>(null);
+  const [publishError, setPublishError] = useState<UserSafeError | null>(null);
+  const [feedbackError, setFeedbackError] = useState<UserSafeError | null>(null);
+  const [joinError, setJoinError] = useState<UserSafeError | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<UserSafeError | null>(null);
+  const [isPublishingCampaign, setIsPublishingCampaign] = useState(false);
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
+  const [isJoiningTasting, setIsJoiningTasting] = useState(false);
   const [statusBanner, setStatusBanner] = useState<{
     type: 'info' | 'success' | 'warning';
     text: string;
@@ -171,6 +188,7 @@ export default function BlackPalateApp() {
 
   async function loadData() {
     setLoading(true);
+    setFetchError(null);
     try {
       // 1. Fetch campaigns from PostgreSQL
       const campRes = await fetch('/api/campaigns');
@@ -180,6 +198,8 @@ export default function BlackPalateApp() {
         if (campData.campaigns.length > 0 && !selectedStudioCampaign) {
           setSelectedStudioCampaign(campData.campaigns[0]);
         }
+      } else if (!campData.ok) {
+        setFetchError(mapErrorToUserMessage(campData, 'fetch_data'));
       }
 
       // 2. Fetch authenticated session
@@ -213,6 +233,7 @@ export default function BlackPalateApp() {
       }
     } catch (err) {
       console.error('Data load error:', err);
+      setFetchError(mapErrorToUserMessage(err, 'fetch_data'));
     } finally {
       setLoading(false);
     }
@@ -224,7 +245,7 @@ export default function BlackPalateApp() {
       const callback = typeof window !== 'undefined' ? window.location.origin : '';
       window.location.href = `/api/auth/neon/sign-in/social?provider=google&callbackURL=${encodeURIComponent(callback)}`;
     } catch (err: any) {
-      setStatusBanner({ type: 'warning', text: `Sign in error: ${err.message}` });
+      setStatusBanner({ type: 'warning', text: 'Restaurant sign-in could not start. Please try again.' });
     }
   }
 
@@ -247,13 +268,17 @@ export default function BlackPalateApp() {
   // Handle joining tasting (fails closed if Flynet is unavailable)
   async function handleJoinTasting(campaign: Campaign) {
     if (!isAuthenticated) {
+      const authErr = mapErrorToUserMessage('AUTH_REQUIRED', 'join_tasting');
+      setJoinError(authErr);
       setStatusBanner({
         type: 'warning',
-        text: 'Blackbird verification is temporarily unavailable while Flynet access is being activated by Blackbird admin.',
+        text: authErr.message,
       });
       return;
     }
 
+    setIsJoiningTasting(true);
+    setJoinError(null);
     setStatusBanner({
       type: 'info',
       text: `Evaluating Flynet dining history for "${campaign.title}"...`,
@@ -269,19 +294,24 @@ export default function BlackPalateApp() {
           type: 'success',
           text: `You have joined the tasting for "${campaign.dishFocus}". Expected reward: ${campaign.rewardFly} FLY.`,
         });
+        setJoinError(null);
         loadData();
         setSelectedTasting(null);
         setActiveNav('my-tastings');
       } else {
+        const userErr = mapErrorToUserMessage(data, 'join_tasting');
+        setJoinError(userErr);
         setStatusBanner({
           type: 'warning',
-          text:
-            data.message ||
-            `Qualification not met: ${data.reasons?.join(', ') || data.error}`,
+          text: userErr.message,
         });
       }
     } catch (err: any) {
-      setStatusBanner({ type: 'warning', text: `Error: ${err.message}` });
+      const userErr = mapErrorToUserMessage(err, 'join_tasting');
+      setJoinError(userErr);
+      setStatusBanner({ type: 'warning', text: userErr.message });
+    } finally {
+      setIsJoiningTasting(false);
     }
   }
 
@@ -291,6 +321,7 @@ export default function BlackPalateApp() {
     if (!activeFeedbackCampaign) return;
 
     setSubmittingFeedback(true);
+    setFeedbackError(null);
     try {
       const res = await fetch(
         `/api/campaigns/${activeFeedbackCampaign.id}/submit-feedback`,
@@ -313,16 +344,28 @@ export default function BlackPalateApp() {
           type: 'success',
           text: `Feedback submitted for "${activeFeedbackCampaign.dishFocus}".`,
         });
+        setFeedbackError(null);
         setActiveFeedbackCampaign(null);
+        setFeedbackForm({
+          overallScore: 5,
+          ratings: { flavor: 5, presentation: 5, value: 4, portion: 4 },
+          answers: {},
+          dishFeedback: '',
+          suggestions: '',
+        });
         loadData();
       } else {
+        const userErr = mapErrorToUserMessage(data, 'feedback_submit');
+        setFeedbackError(userErr);
         setStatusBanner({
           type: 'warning',
-          text: data.message || `Submission error: ${data.error}`,
+          text: userErr.message,
         });
       }
     } catch (err: any) {
-      setStatusBanner({ type: 'warning', text: `Submission failed: ${err.message}` });
+      const userErr = mapErrorToUserMessage(err, 'feedback_submit');
+      setFeedbackError(userErr);
+      setStatusBanner({ type: 'warning', text: userErr.message });
     } finally {
       setSubmittingFeedback(false);
     }
@@ -398,6 +441,8 @@ export default function BlackPalateApp() {
       setStatusBanner({ type: 'warning', text: 'Restaurant name and primary cuisine are required.' });
       return;
     }
+    setIsCreatingWorkspace(true);
+    setWorkspaceError(null);
     try {
       const res = await fetch('/api/restaurants', {
         method: 'POST',
@@ -416,36 +461,49 @@ export default function BlackPalateApp() {
           text: `Restaurant workspace "${data.restaurant.name}" created with OWNER privileges.`,
         });
         setIsCreatingWorkspaceModalOpen(false);
+        setWorkspaceError(null);
         setWorkspaceForm({ name: '', cuisine: '', location: 'NYC', description: '' });
         await loadData();
         setActiveWorkspace(data.restaurant);
       } else {
-        setStatusBanner({ type: 'warning', text: data.message || `Creation failed: ${data.error}` });
+        const userErr = mapErrorToUserMessage(data, 'workspace_create');
+        setWorkspaceError(userErr);
+        setStatusBanner({ type: 'warning', text: userErr.message });
       }
     } catch (err: any) {
-      setStatusBanner({ type: 'warning', text: `Creation failed: ${err.message}` });
+      const userErr = mapErrorToUserMessage(err, 'workspace_create');
+      setWorkspaceError(userErr);
+      setStatusBanner({ type: 'warning', text: userErr.message });
+    } finally {
+      setIsCreatingWorkspace(false);
     }
   }
 
   // Handle Publishing Campaign (Strictly requires active workspace with OWNER/MANAGER role)
   async function handlePublishCampaign() {
     if (!isAuthenticated || authRole !== 'RESTAURANT') {
+      const authErr = mapErrorToUserMessage('AUTH_REQUIRED', 'campaign_publish');
+      setPublishError(authErr);
       setStatusBanner({
         type: 'warning',
-        text: 'Restaurant operator sign-in is required to publish tasting campaigns. Please sign in above.',
+        text: authErr.message,
       });
       return;
     }
 
     if (!activeWorkspace || !activeWorkspace.id) {
+      const wsErr = mapErrorToUserMessage('FORBIDDEN_WORKSPACE', 'campaign_publish');
+      setPublishError(wsErr);
       setStatusBanner({
         type: 'warning',
-        text: 'No active restaurant workspace found. You must create or select a restaurant workspace before publishing.',
+        text: wsErr.message,
       });
       setIsCreatingWorkspaceModalOpen(true);
       return;
     }
 
+    setIsPublishingCampaign(true);
+    setPublishError(null);
     try {
       const restId = activeWorkspace.id;
       const restName = activeWorkspace.name || newCampaign.restaurantName;
@@ -479,16 +537,23 @@ export default function BlackPalateApp() {
           type: 'success',
           text: `Tasting mission "${newCampaign.dishFocus}" published to database.`,
         });
+        setPublishError(null);
         loadData();
         setActiveNav('discover');
       } else {
+        const userErr = mapErrorToUserMessage(data, 'campaign_publish');
+        setPublishError(userErr);
         setStatusBanner({
           type: 'warning',
-          text: data.message || `Publish failed: ${data.error}`,
+          text: userErr.message,
         });
       }
     } catch (err: any) {
-      setStatusBanner({ type: 'warning', text: `Publish failed: ${err.message}` });
+      const userErr = mapErrorToUserMessage(err, 'campaign_publish');
+      setPublishError(userErr);
+      setStatusBanner({ type: 'warning', text: userErr.message });
+    } finally {
+      setIsPublishingCampaign(false);
     }
   }
 
@@ -1962,106 +2027,109 @@ export default function BlackPalateApp() {
       {/* VIEW 2: DINER DISCOVER (RESPONDENT / USERTESTING MARKETPLACE UX)          */}
       {/* ========================================================================= */}
       {activeNav === 'discover' && (
-        <main
-          style={{
-            maxWidth: '1200px',
-            margin: '0 auto',
-            padding: '40px 24px 80px',
-          }}
-        >
-          {/* Header & Search Bar */}
-          <div style={{ marginBottom: '32px' }}>
-            <h2
-              style={{
-                fontSize: '28px',
-                fontWeight: '800',
-                margin: '0 0 8px 0',
-                color: '#F5F5F4',
-              }}
-            >
-              Open Tasting Opportunities
-            </h2>
-            <p style={{ fontSize: '14px', color: '#A8A29E', margin: '0 0 24px 0' }}>
-              Browse active culinary research opportunities matched to verified dining
-              behavior.
-            </p>
+        <ErrorBoundary fallbackTitle="Tastings Marketplace Unavailable" onReset={loadData}>
+          <main
+            style={{
+              maxWidth: '1200px',
+              margin: '0 auto',
+              padding: '40px 24px 80px',
+            }}
+          >
+            {/* Header & Search Bar */}
+            <div style={{ marginBottom: '32px' }}>
+              <h2
+                style={{
+                  fontSize: '28px',
+                  fontWeight: '800',
+                  margin: '0 0 8px 0',
+                  color: '#F5F5F4',
+                }}
+              >
+                Open Tasting Opportunities
+              </h2>
+              <p style={{ fontSize: '14px', color: '#A8A29E', margin: '0 0 24px 0' }}>
+                Browse active culinary research opportunities matched to verified dining
+                behavior.
+              </p>
 
-            {/* Filter and Search Bar */}
-            <div
-              style={{
-                display: 'flex',
-                gap: '12px',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-              }}
-            >
-              <div style={{ position: 'relative', flex: 1, minWidth: '260px' }}>
-                <Search
-                  size={16}
-                  color="#78716C"
-                  style={{ position: 'absolute', left: '14px', top: '14px' }}
-                />
-                <input
-                  type="text"
-                  placeholder="Search by dish, restaurant, or cuisine..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '12px 14px 12px 40px',
-                    backgroundColor: '#121212',
-                    color: '#F5F5F4',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                  }}
-                />
-              </div>
-
-              {/* Cuisine Filter Pills */}
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {[
-                  'All',
-                  'Italian',
-                  'Japanese',
-                  'Contemporary American',
-                  'Mexican',
-                ].map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setSelectedCuisineFilter(c)}
+              {/* Filter and Search Bar */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '12px',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                }}
+              >
+                <div style={{ position: 'relative', flex: 1, minWidth: '260px' }}>
+                  <Search
+                    size={16}
+                    color="#78716C"
+                    style={{ position: 'absolute', left: '14px', top: '14px' }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search by dish, restaurant, or cuisine..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                     style={{
-                      padding: '8px 14px',
-                      borderRadius: '20px',
-                      border:
-                        selectedCuisineFilter === c
-                          ? '1px solid #F59E0B'
-                          : '1px solid rgba(255, 255, 255, 0.08)',
-                      backgroundColor:
-                        selectedCuisineFilter === c
-                          ? 'rgba(245, 158, 11, 0.15)'
-                          : '#121212',
-                      color: selectedCuisineFilter === c ? '#F59E0B' : '#A8A29E',
-                      fontSize: '12px',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
+                      width: '100%',
+                      padding: '12px 14px 12px 40px',
+                      backgroundColor: '#121212',
+                      color: '#F5F5F4',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      fontSize: '14px',
                     }}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+                  />
+                </div>
 
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '80px', color: '#A8A29E' }}>
-              <div style={{ marginBottom: '12px' }}>
-                Loading tasting marketplace...
+                {/* Cuisine Filter Pills */}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {[
+                    'All',
+                    'Italian',
+                    'Japanese',
+                    'Contemporary American',
+                    'Mexican',
+                  ].map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setSelectedCuisineFilter(c)}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '20px',
+                        border:
+                          selectedCuisineFilter === c
+                            ? '1px solid #F59E0B'
+                            : '1px solid rgba(255, 255, 255, 0.08)',
+                        backgroundColor:
+                          selectedCuisineFilter === c
+                            ? 'rgba(245, 158, 11, 0.15)'
+                            : '#121212',
+                        color: selectedCuisineFilter === c ? '#F59E0B' : '#A8A29E',
+                        fontSize: '12px',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          ) : filteredCampaigns.length === 0 ? (
+
+            {fetchError ? (
+              <CalloutAlert error={fetchError} onAction={loadData} />
+            ) : loading ? (
+              <div style={{ textAlign: 'center', padding: '80px', color: '#A8A29E' }}>
+                <div style={{ marginBottom: '12px' }}>
+                  Loading tasting marketplace...
+                </div>
+              </div>
+            ) : filteredCampaigns.length === 0 ? (
             <div
               style={{
                 textAlign: 'center',
@@ -2321,6 +2389,7 @@ export default function BlackPalateApp() {
             </div>
           )}
         </main>
+      </ErrorBoundary>
       )}
 
       {/* ========================================================================= */}
@@ -2572,6 +2641,14 @@ export default function BlackPalateApp() {
                 </ul>
               </div>
 
+              {joinError && (
+                <CalloutAlert
+                  error={joinError}
+                  onDismiss={() => setJoinError(null)}
+                  onAction={() => handleJoinTasting(selectedTasting)}
+                />
+              )}
+
               {/* Truthful Verification Notice */}
               <div
                 style={{
@@ -2607,6 +2684,7 @@ export default function BlackPalateApp() {
               <div style={{ display: 'flex', gap: '12px' }}>
                 <InteractiveButton
                   onClick={() => handleJoinTasting(selectedTasting)}
+                  disabled={isJoiningTasting}
                   variant="primary"
                   style={{
                     flex: 1,
@@ -2615,10 +2693,15 @@ export default function BlackPalateApp() {
                     border: '1px solid #92400E',
                   }}
                 >
-                  Verification Awaiting Flynet Approval
+                  {isJoiningTasting
+                    ? 'Evaluating Dining History...'
+                    : 'Verification Awaiting Flynet Approval'}
                 </InteractiveButton>
                 <InteractiveButton
-                  onClick={() => setSelectedTasting(null)}
+                  onClick={() => {
+                    setSelectedTasting(null);
+                    setJoinError(null);
+                  }}
                   variant="secondary"
                 >
                   Close
@@ -2633,235 +2716,240 @@ export default function BlackPalateApp() {
       {/* VIEW 3: MY TASTINGS (DINER DASHBOARD & SINGLE STATUS PROGRESSION)         */}
       {/* ========================================================================= */}
       {activeNav === 'my-tastings' && (
-        <main
-          style={{
-            maxWidth: '1000px',
-            margin: '0 auto',
-            padding: '40px 24px 80px',
-          }}
-        >
-          <div style={{ marginBottom: '32px' }}>
-            <h2
-              style={{
-                fontSize: '28px',
-                fontWeight: '800',
-                margin: '0 0 6px 0',
-                color: '#F5F5F4',
-              }}
-            >
-              My Tasting Sessions
-            </h2>
-            <p style={{ fontSize: '14px', color: '#A8A29E', margin: 0 }}>
-              Track your reservations, submit sensory evaluations, and monitor FLY
-              reward settlement.
-            </p>
-          </div>
+        <ErrorBoundary fallbackTitle="Tastings History Unavailable" onReset={loadData}>
+          <main
+            style={{
+              maxWidth: '1000px',
+              margin: '0 auto',
+              padding: '40px 24px 80px',
+            }}
+          >
+            <div style={{ marginBottom: '32px' }}>
+              <h2
+                style={{
+                  fontSize: '28px',
+                  fontWeight: '800',
+                  margin: '0 0 6px 0',
+                  color: '#F5F5F4',
+                }}
+              >
+                My Tasting Sessions
+              </h2>
+              <p style={{ fontSize: '14px', color: '#A8A29E', margin: 0 }}>
+                Track your reservations, submit sensory evaluations, and monitor FLY
+                reward settlement.
+              </p>
+            </div>
 
-          {!isAuthenticated ? (
-            <div
-              style={{
-                textAlign: 'center',
-                padding: '64px 24px',
-                backgroundColor: '#121212',
-                borderRadius: '12px',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-              }}
-            >
+            {fetchError ? (
+              <CalloutAlert error={fetchError} onAction={loadData} />
+            ) : !isAuthenticated ? (
               <div
                 style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '50%',
-                  backgroundColor: '#181818',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#F59E0B',
-                  marginBottom: '16px',
+                  textAlign: 'center',
+                  padding: '64px 24px',
+                  backgroundColor: '#121212',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
                 }}
               >
-                <Lock size={22} />
+                <div
+                  style={{
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '50%',
+                    backgroundColor: '#181818',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#F59E0B',
+                    marginBottom: '16px',
+                  }}
+                >
+                  <Lock size={22} />
+                </div>
+                <h3
+                  style={{
+                    fontSize: '18px',
+                    fontWeight: '700',
+                    color: '#F5F5F4',
+                    margin: '0 0 8px 0',
+                  }}
+                >
+                  Blackbird Authentication Required
+                </h3>
+                <p
+                  style={{
+                    fontSize: '14px',
+                    color: '#A8A29E',
+                    margin: '0 0 24px 0',
+                    maxWidth: '460px',
+                    marginInline: 'auto',
+                    lineHeight: '1.5',
+                  }}
+                >
+                  Connect your Blackbird account to view your scheduled tasting
+                  reservations and submitted sensory feedback.
+                </p>
+                <InteractiveButton
+                  onClick={() => {
+                    window.location.href = '/api/auth/login';
+                  }}
+                  variant="primary"
+                >
+                  Connect Blackbird Account
+                </InteractiveButton>
               </div>
-              <h3
+            ) : userApplications.length === 0 ? (
+              <div
                 style={{
-                  fontSize: '18px',
-                  fontWeight: '700',
-                  color: '#F5F5F4',
-                  margin: '0 0 8px 0',
+                  textAlign: 'center',
+                  padding: '64px 24px',
+                  backgroundColor: '#121212',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
                 }}
               >
-                Blackbird Authentication Required
-              </h3>
-              <p
-                style={{
-                  fontSize: '14px',
-                  color: '#A8A29E',
-                  margin: '0 0 24px 0',
-                  maxWidth: '460px',
-                  marginInline: 'auto',
-                  lineHeight: '1.5',
-                }}
-              >
-                Connect your Blackbird account to view your scheduled tasting
-                reservations and submitted sensory feedback.
-              </p>
-              <InteractiveButton
-                onClick={() => {
-                  window.location.href = '/api/auth/login';
-                }}
-                variant="primary"
-              >
-                Connect Blackbird Account
-              </InteractiveButton>
-            </div>
-          ) : userApplications.length === 0 ? (
-            <div
-              style={{
-                textAlign: 'center',
-                padding: '64px 24px',
-                backgroundColor: '#121212',
-                borderRadius: '12px',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-              }}
-            >
-              <p
-                style={{
-                  fontSize: '15px',
-                  color: '#A8A29E',
-                  margin: '0 0 20px 0',
-                }}
-              >
-                You have not joined any tasting sessions yet.
-              </p>
-              <InteractiveButton
-                onClick={() => setActiveNav('discover')}
-                variant="primary"
-              >
-                Browse Open Tastings
-              </InteractiveButton>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {userApplications.map((app) => {
-                const camp =
-                  app.campaign || campaigns.find((c) => c.id === app.campaignId);
-                if (!camp) return null;
+                <p
+                  style={{
+                    fontSize: '15px',
+                    color: '#A8A29E',
+                    margin: '0 0 20px 0',
+                  }}
+                >
+                  You have not joined any tasting sessions yet.
+                </p>
+                <InteractiveButton
+                  onClick={() => setActiveNav('discover')}
+                  variant="primary"
+                >
+                  Browse Open Tastings
+                </InteractiveButton>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {userApplications.map((app) => {
+                  const camp =
+                    app.campaign || campaigns.find((c) => c.id === app.campaignId);
+                  if (!camp) return null;
 
-                const isCompleted =
-                  app.status === 'SUBMITTED' ||
-                  app.status === 'REWARDED' ||
-                  app.status === 'REWARD_PENDING';
+                  const isCompleted =
+                    app.status === 'SUBMITTED' ||
+                    app.status === 'REWARDED' ||
+                    app.status === 'REWARD_PENDING';
+                  const rewardInfo = getRewardStatusDisplay(app.rewardStatus);
 
-                return (
-                  <div
-                    key={app.id}
-                    style={{
-                      backgroundColor: '#121212',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
-                      borderRadius: '12px',
-                      padding: '24px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                      gap: '16px',
-                    }}
-                  >
-                    <div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px',
-                          marginBottom: '6px',
-                        }}
-                      >
-                        <span
+                  return (
+                    <div
+                      key={app.id}
+                      style={{
+                        backgroundColor: '#121212',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        borderRadius: '12px',
+                        padding: '24px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '16px',
+                      }}
+                    >
+                      <div>
+                        <div
                           style={{
-                            fontSize: '12px',
-                            fontWeight: '800',
-                            color: '#F59E0B',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            marginBottom: '6px',
                           }}
                         >
-                          {camp.restaurantName}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            padding: '2px 8px',
-                            borderRadius: '4px',
-                            backgroundColor: isCompleted
-                              ? 'rgba(16, 185, 129, 0.15)'
-                              : 'rgba(56, 189, 248, 0.15)',
-                            color: isCompleted ? '#A7F3D0' : '#38BDF8',
-                            fontWeight: '700',
-                            border: isCompleted
-                              ? '1px solid rgba(16, 185, 129, 0.3)'
-                              : '1px solid rgba(56, 189, 248, 0.3)',
-                          }}
-                        >
-                          {app.status === 'SUBMITTED'
-                            ? 'Feedback Submitted'
-                            : app.status}
-                        </span>
-                      </div>
-
-                      <h3
-                        style={{
-                          fontSize: '18px',
-                          fontWeight: '700',
-                          margin: '0 0 4px 0',
-                          color: '#F5F5F4',
-                        }}
-                      >
-                        {camp.dishFocus}
-                      </h3>
-                      <div style={{ fontSize: '13px', color: '#A8A29E' }}>
-                        Timing: <strong>{camp.timing || 'Scheduled'}</strong> ·
-                        Reward:{' '}
-                        <strong style={{ color: '#F59E0B' }}>
-                          {camp.rewardFly} FLY
-                        </strong>
-                      </div>
-                    </div>
-
-                    <div>
-                      {isCompleted ? (
-                        <div style={{ textAlign: 'right' }}>
                           <span
                             style={{
-                              fontSize: '13px',
-                              color: '#10B981',
-                              fontWeight: '700',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              justifyContent: 'flex-end',
+                              fontSize: '12px',
+                              fontWeight: '800',
+                              color: '#F59E0B',
                             }}
                           >
-                            <CheckCircle2 size={15} />
-                            Feedback Submitted
+                            {camp.restaurantName}
                           </span>
-                          <span style={{ fontSize: '11px', color: '#78716C' }}>
-                            Reward pipeline active
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              backgroundColor: isCompleted
+                                ? 'rgba(16, 185, 129, 0.15)'
+                                : 'rgba(56, 189, 248, 0.15)',
+                              color: isCompleted ? '#A7F3D0' : '#38BDF8',
+                              fontWeight: '700',
+                              border: isCompleted
+                                ? '1px solid rgba(16, 185, 129, 0.3)'
+                                : '1px solid rgba(56, 189, 248, 0.3)',
+                            }}
+                          >
+                            {app.status === 'SUBMITTED'
+                              ? 'Feedback Submitted'
+                              : app.status}
                           </span>
                         </div>
-                      ) : (
-                        <InteractiveButton
-                          onClick={() => setActiveFeedbackCampaign(camp)}
-                          variant="primary"
+
+                        <h3
+                          style={{
+                            fontSize: '18px',
+                            fontWeight: '700',
+                            margin: '0 0 4px 0',
+                            color: '#F5F5F4',
+                          }}
                         >
-                          Submit Feedback
-                          <ArrowRight size={15} />
-                        </InteractiveButton>
-                      )}
+                          {camp.dishFocus}
+                        </h3>
+                        <div style={{ fontSize: '13px', color: '#A8A29E' }}>
+                          Timing: <strong>{camp.timing || 'Scheduled'}</strong> ·
+                          Reward:{' '}
+                          <strong style={{ color: '#F59E0B' }}>
+                            {camp.rewardFly} FLY
+                          </strong>
+                        </div>
+                      </div>
+
+                      <div>
+                        {isCompleted ? (
+                          <div style={{ textAlign: 'right' }}>
+                            <span
+                              style={{
+                                fontSize: '13px',
+                                color: rewardInfo.color,
+                                fontWeight: '700',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                justifyContent: 'flex-end',
+                              }}
+                            >
+                              <CheckCircle2 size={15} color={rewardInfo.color} />
+                              {rewardInfo.label}
+                            </span>
+                            <span style={{ fontSize: '11px', color: '#78716C', display: 'block', maxWidth: '240px' }}>
+                              {rewardInfo.description}
+                            </span>
+                          </div>
+                        ) : (
+                          <InteractiveButton
+                            onClick={() => setActiveFeedbackCampaign(camp)}
+                            variant="primary"
+                          >
+                            Submit Feedback
+                            <ArrowRight size={15} />
+                          </InteractiveButton>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </main>
+                  );
+                })}
+              </div>
+            )}
+          </main>
+        </ErrorBoundary>
       )}
 
       {/* ========================================================================= */}
@@ -2947,6 +3035,12 @@ export default function BlackPalateApp() {
               </div>
 
               <form onSubmit={handleSubmitFeedback}>
+                {feedbackError && (
+                  <CalloutAlert
+                    error={feedbackError}
+                    onDismiss={() => setFeedbackError(null)}
+                  />
+                )}
                 <div style={{ marginBottom: '20px' }}>
                   <label
                     style={{
@@ -3256,29 +3350,38 @@ export default function BlackPalateApp() {
       {/* VIEW 4: RESTAURANT MISSION BUILDER (DSCOUT PROGRESSIVE STEPPER)           */}
       {/* ========================================================================= */}
       {activeNav === 'create-tasting' && (
-        <main
-          style={{
-            maxWidth: '1100px',
-            margin: '0 auto',
-            padding: '40px 24px 80px',
-          }}
-        >
-          <div style={{ marginBottom: '32px' }}>
-            <h2
-              style={{
-                fontSize: '28px',
-                fontWeight: '800',
-                margin: '0 0 6px 0',
-                color: '#F5F5F4',
-              }}
-            >
-              Create a Tasting Mission
-            </h2>
-            <p style={{ fontSize: '14px', color: '#A8A29E', margin: 0 }}>
-              Recruit behavior-qualified diners to test new dishes and refine menu
-              pricing.
-            </p>
-          </div>
+        <ErrorBoundary fallbackTitle="Tasting Mission Builder Unavailable">
+          <main
+            style={{
+              maxWidth: '1100px',
+              margin: '0 auto',
+              padding: '40px 24px 80px',
+            }}
+          >
+            <div style={{ marginBottom: '32px' }}>
+              <h2
+                style={{
+                  fontSize: '28px',
+                  fontWeight: '800',
+                  margin: '0 0 6px 0',
+                  color: '#F5F5F4',
+                }}
+              >
+                Create a Tasting Mission
+              </h2>
+              <p style={{ fontSize: '14px', color: '#A8A29E', margin: 0 }}>
+                Define your research goal, configure deterministic Flynet criteria, and
+                deploy incentives.
+              </p>
+            </div>
+
+            {publishError && (
+              <CalloutAlert
+                error={publishError}
+                onDismiss={() => setPublishError(null)}
+                onAction={handlePublishCampaign}
+              />
+            )}
 
           {/* AI Drafting Assistant Callout */}
           <div
@@ -4283,10 +4386,13 @@ export default function BlackPalateApp() {
                     </InteractiveButton>
                     <InteractiveButton
                       onClick={handlePublishCampaign}
+                      disabled={isPublishingCampaign}
                       variant="primary"
                       style={{ flex: 1 }}
                     >
-                      Publish Tasting Campaign
+                      {isPublishingCampaign
+                        ? 'Publishing Mission...'
+                        : 'Publish Tasting Campaign'}
                       <ArrowRight size={15} />
                     </InteractiveButton>
                   </div>
@@ -4295,44 +4401,69 @@ export default function BlackPalateApp() {
             </div>
           </div>
         </main>
+      </ErrorBoundary>
       )}
 
       {/* ========================================================================= */}
       {/* VIEW 5: RESTAURANT STUDIO & RESEARCH INTELLIGENCE                         */}
       {/* ========================================================================= */}
       {activeNav === 'campaign-studio' && (
-        <main
-          style={{
-            maxWidth: '1280px',
-            margin: '0 auto',
-            padding: '40px 24px 80px',
-          }}
-        >
-          <div style={{ marginBottom: '32px' }}>
-            <h2
-              style={{
-                fontSize: '28px',
-                fontWeight: '800',
-                margin: '0 0 6px 0',
-                color: '#F5F5F4',
-              }}
-            >
-              Restaurant Campaign Dashboard &amp; AI Synthesis
-            </h2>
-            <p style={{ fontSize: '14px', color: '#A8A29E', margin: 0 }}>
-              Review active campaigns, qualified participant cohorts, and executive
-              culinary intelligence.
-            </p>
-          </div>
-
-          <div
+        <ErrorBoundary fallbackTitle="Restaurant Dashboard Unavailable" onReset={loadData}>
+          <main
             style={{
-              display: 'grid',
-              gridTemplateColumns: '320px 1fr',
-              gap: '24px',
-              alignItems: 'flex-start',
+              maxWidth: '1280px',
+              margin: '0 auto',
+              padding: '40px 24px 80px',
             }}
           >
+            <div style={{ marginBottom: '32px' }}>
+              <h2
+                style={{
+                  fontSize: '28px',
+                  fontWeight: '800',
+                  margin: '0 0 6px 0',
+                  color: '#F5F5F4',
+                }}
+              >
+                Restaurant Campaign Dashboard &amp; AI Synthesis
+              </h2>
+              <p style={{ fontSize: '14px', color: '#A8A29E', margin: 0 }}>
+                Review active campaigns, qualified participant cohorts, and executive
+                culinary intelligence.
+              </p>
+            </div>
+
+            {fetchError ? (
+              <CalloutAlert error={fetchError} onAction={loadData} />
+            ) : campaigns.length === 0 ? (
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '64px 24px',
+                  backgroundColor: '#121212',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                }}
+              >
+                <p style={{ fontSize: '15px', color: '#A8A29E', margin: '0 0 20px 0' }}>
+                  No tasting campaigns created yet for your restaurant workspace.
+                </p>
+                <InteractiveButton
+                  onClick={() => setActiveNav('create-tasting')}
+                  variant="primary"
+                >
+                  Create Your First Tasting Mission
+                </InteractiveButton>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '320px 1fr',
+                  gap: '24px',
+                  alignItems: 'flex-start',
+                }}
+              >
             {/* Sidebar: Campaign List */}
             <div
               style={{
@@ -4742,7 +4873,9 @@ export default function BlackPalateApp() {
               )}
             </div>
           </div>
+          )}
         </main>
+      </ErrorBoundary>
       )}
 
       {/* ========================================================================= */}
@@ -4997,7 +5130,10 @@ export default function BlackPalateApp() {
                   </h3>
                 </div>
                 <button
-                  onClick={() => setIsCreatingWorkspaceModalOpen(false)}
+                  onClick={() => {
+                    setIsCreatingWorkspaceModalOpen(false);
+                    setWorkspaceError(null);
+                  }}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -5012,6 +5148,13 @@ export default function BlackPalateApp() {
               <p style={{ fontSize: '14px', color: '#A8A29E', margin: '0 0 20px 0', lineHeight: 1.5 }}>
                 Creating a workspace establishes your restaurant profile on PostgreSQL and grants your authenticated account <strong style={{ color: '#F59E0B' }}>OWNER</strong> privileges.
               </p>
+
+              {workspaceError && (
+                <CalloutAlert
+                  error={workspaceError}
+                  onDismiss={() => setWorkspaceError(null)}
+                />
+              )}
 
               <form onSubmit={handleCreateWorkspace} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div>
@@ -5085,7 +5228,10 @@ export default function BlackPalateApp() {
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '12px' }}>
                   <button
                     type="button"
-                    onClick={() => setIsCreatingWorkspaceModalOpen(false)}
+                    onClick={() => {
+                      setIsCreatingWorkspaceModalOpen(false);
+                      setWorkspaceError(null);
+                    }}
                     style={{
                       padding: '10px 18px',
                       borderRadius: '8px',
@@ -5101,6 +5247,7 @@ export default function BlackPalateApp() {
                   </button>
                   <button
                     type="submit"
+                    disabled={isCreatingWorkspace}
                     style={{
                       padding: '10px 20px',
                       borderRadius: '8px',
@@ -5116,7 +5263,7 @@ export default function BlackPalateApp() {
                     }}
                   >
                     <Utensils size={14} />
-                    Create Workspace
+                    {isCreatingWorkspace ? 'Creating Workspace...' : 'Create Workspace'}
                   </button>
                 </div>
               </form>

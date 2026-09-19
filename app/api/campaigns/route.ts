@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { getAuthenticatedOperator } from '@/lib/auth';
+import { safeError, safeCatch } from '@/lib/api-errors';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,10 +13,7 @@ export async function GET(req: Request) {
     const campaigns = await db.getCampaigns(restaurantId);
     return NextResponse.json({ ok: true, campaigns });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err.message || 'Failed to fetch campaigns' },
-      { status: 500 }
-    );
+    return safeCatch(err);
   }
 }
 
@@ -33,23 +31,13 @@ export async function POST(req: Request) {
     // 1. Authenticate operator via real Neon Auth session
     const operatorCtx = await getAuthenticatedOperator(req);
     if (!operatorCtx) {
-      return NextResponse.json(
-        { ok: false, error: 'UNAUTHORIZED', message: 'Sign-in required to create tasting campaigns.' },
-        { status: 401 }
-      );
+      return safeError(401, 'UNAUTHORIZED', 'campaign publish without session');
     }
 
     // 2. Enforce RestaurantMembership authorization (prevent cross-restaurant mutation)
     const membership = await db.getMembership(operatorCtx.user.id, body.restaurantId);
     if (!membership) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'FORBIDDEN_WORKSPACE',
-          message: 'You do not have operator authorization for this restaurant workspace.',
-        },
-        { status: 403 }
-      );
+      return safeError(403, 'FORBIDDEN_WORKSPACE', `no membership for publish`);
     }
 
     // 3. Create persistent campaign
@@ -80,9 +68,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, campaign }, { status: 201 });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err.message || 'Failed to create campaign' },
-      { status: 500 }
-    );
+    return safeCatch(err);
   }
 }

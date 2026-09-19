@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { getAuthenticatedOperator } from '@/lib/auth';
+import { safeError, safeCatch } from '@/lib/api-errors';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,10 +10,7 @@ export async function GET() {
     const restaurants = await db.getRestaurants();
     return NextResponse.json({ ok: true, restaurants });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err.message || 'Failed to fetch restaurants' },
-      { status: 500 }
-    );
+    return safeCatch(err);
   }
 }
 
@@ -21,18 +19,12 @@ export async function POST(req: Request) {
     // 1. Authenticate operator via real Neon Auth session
     const operatorCtx = await getAuthenticatedOperator(req);
     if (!operatorCtx) {
-      return NextResponse.json(
-        { ok: false, error: 'UNAUTHORIZED', message: 'Sign-in required to create a restaurant workspace.' },
-        { status: 401 }
-      );
+      return safeError(401, 'UNAUTHORIZED', 'workspace creation without session');
     }
 
     const body = await req.json();
     if (!body.name || !body.cuisine) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing required restaurant fields: name, cuisine' },
-        { status: 400 }
-      );
+      return safeError(400, 'VALIDATION');
     }
 
     // 2. Create Restaurant entity
@@ -60,9 +52,6 @@ export async function POST(req: Request) {
       message: 'Restaurant workspace created and ownership assigned.',
     }, { status: 201 });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err.message || 'Failed to create restaurant workspace' },
-      { status: 500 }
-    );
+    return safeCatch(err);
   }
 }

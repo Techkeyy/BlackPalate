@@ -1,15 +1,13 @@
 import { NextResponse } from 'next/server';
 import { draftCampaignWithAI } from '@/lib/ai';
+import { safeError, safeCatch } from '@/lib/api-errors';
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
     if (!body.dishName || !body.restaurantName) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing required fields: dishName, restaurantName' },
-        { status: 400 }
-      );
+      return safeError(400, 'VALIDATION');
     }
 
     const { draft, meta } = await draftCampaignWithAI({
@@ -23,9 +21,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, draft, meta });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err.message || 'Failed to generate campaign draft' },
-      { status: 500 }
-    );
+    return safeCatch(err);
   }
 }

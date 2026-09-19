@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { synthesizeFeedbackWithAI, AiResponseMetadata } from '@/lib/ai';
+import { safeError, safeCatch } from '@/lib/api-errors';
 
 export async function GET(
   req: Request,
@@ -9,7 +10,7 @@ export async function GET(
   try {
     const campaign = await db.getCampaignById(params.id);
     if (!campaign) {
-      return NextResponse.json({ ok: false, error: 'Campaign not found' }, { status: 404 });
+      return safeError(404, 'NOT_FOUND');
     }
 
     // Check if report already exists in database
@@ -44,9 +45,6 @@ export async function GET(
       meta,
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err.message || 'Synthesis retrieval failed' },
-      { status: 500 }
-    );
+    return safeCatch(err);
   }
 }

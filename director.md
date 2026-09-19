@@ -18,7 +18,16 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 ---
 
 ## Current Status
-**DIRECTIVE 002F IN PROGRESS — SECRET INCIDENT REMEDIATED, GIT HISTORY SCRUBBED, WORKSPACE ISOLATION ENFORCED, RESTAURANT GOOGLE AUTH UAT PENDING**
+**BUILDER TAKEOVER AUDIT 2026-09-19 — DIRECTIVE 002F CLAIMS PARTIALLY REFUTED, ERROR-HANDLING WORK UNCOMMITTED, PROD DB POLLUTED**
+
+- **Takeover corrections (code + live state outrank prior prose)**:
+  - Secret incident NOT fully remediated: compromised value remains in `lib/audit.test.mjs:273` as `oldPattern` AND in reachable history (`03ed70c`, `fc6e991`). Prior `OLD_SECRET_OCCURRENCES = 0` claim is FALSE.
+  - `lib/auth.ts` secret fail-closed VERIFIED (throws `NEON_AUTH_CONFIGURATION_ERROR`, no `||` fallback on secret). Base-URL fallback remains for non-prod only. GOOD.
+  - Neon connectivity VERIFIED (integration 5/5 + live prod `GET /api/campaigns` = 8+ real rows). BUT prod DB polluted with `camp_test_*` / `rest_test_*` / `usr_test_*` integration rows. Needs cleanup.
+  - Prisma schema STALE + UNUSED (zero `@prisma/client` imports; truth = `lib/db/schema.sql` + `repository.ts`). Prisma dep is dead weight.
+  - Suites total 56 (unit 15 + audit 18 + integration 5 + error-handling 18), not 38. Error-handling UI is LOCAL-ONLY, UNCOMMITTED (2 modified + 9 untracked). Prod homepage shows "0 Tastings" while API returns 9 — prod build stale or filter bug.
+  - API routes still return raw `err.message` in JSON (leaks internals); proofs reward route uses `Date.now()` idempotency (violates stable-key rule). Main reward flow CORRECT (`blackpalate:reward:<applicationId>`, `txHash=null`, 5 states).
+  - Google provider + trusted origin UNVERIFIED (console-only); no live sign-in/logout UAT evidence. Flynet BLOCKED confirmed (prod `/api/auth/login` 400, fail-closed; no fake creds).
 
 - **Security Incident Status**:
   - Compromised Neon Auth cookie secret was immediately rotated across all environments (Vercel production, preview, development, and local).
@@ -49,11 +58,12 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 
 ### 3. Automated Test Suites & Build Health
 - `npm run test:unit`: **15/15 PASS** (`campaign.test.mjs` + `qualification.test.mjs`).
-- `npm run test:audit`: **18/18 PASS** (`audit.test.mjs` with IDOR, duplicate prevention, secret scan, fail-closed auth, cross-workspace mutex, and reward integrity checks).
-- `npm run test:integration`: **5/5 PASS** (`db.integration.test.mjs` against live Neon PostgreSQL).
-- **Total Tests**: **38/38 PASS** (`npm test`).
+- `npm run test:audit`: **18/18 PASS** (security unit on memory repo: IDOR, duplicates, generic secret-hygiene, fail-closed auth, cross-workspace mutex, reward integrity).
+- `npm run test:integration`: **SKIP without TEST_DATABASE_URL** (Directive 002G guard: refuses prod, never falls back to DATABASE_URL). Needs isolated Neon test branch (human action).
+- `npm run test:error-handling`: **18/18 PASS** (user-safe error mapping, input preservation, reward states).
+- `npx tsc --noEmit`: clean. `npm run build`: PASS.
 - **Production URL**: `https://blackpalate.vercel.app`
-- **Public GitHub Repo**: `https://github.com/Techkeyy/BlackPalate` (Branch: `master`, Commit: `fc6e991`)
+- **Public GitHub Repo**: `https://github.com/Techkeyy/BlackPalate` (Branch: `master`)
 
 ---
 
@@ -63,9 +73,9 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 |---|---|---|---|---|
 | **Public Host & Callback** | `https://blackpalate.vercel.app` | Vercel production | **INTEGRATION PROVEN** | Live & verified |
 | **Relational Persistence** | `lib/db/repository.ts` | Neon PostgreSQL | **INTEGRATION PROVEN** | Provisioned (`neon-beige-forest`) & verified |
-| **Managed Restaurant Auth** | `lib/auth.ts` + `/api/auth/neon` | Neon Auth SDK | **IMPLEMENTED (UAT PENDING)** | Real endpoint wired; awaiting Google OAuth UAT |
-| **Workspace Authorization** | `POST /api/campaigns` | Neon DB / Session | **INTEGRATION PROVEN** | Strict membership checks; cross-workspace mutex verified |
-| **User-Centric Applications** | `POST /api/campaigns/[id]/apply` | Neon DB / Session | **INTEGRATION PROVEN** | Owned by internal `userId`, not raw Flynet ID |
+| **Managed Restaurant Auth** | `lib/auth.ts` + `/api/auth/neon` | Neon Auth SDK | **IMPLEMENTED (UAT PENDING)** | Real endpoint wired; Google provider + trusted origin need human console check + live sign-in UAT |
+| **Workspace Authorization** | `POST /api/campaigns` | Neon DB / Session | **COMPONENT PROVEN** | Strict membership checks; cross-workspace mutex passes on memory repo; HTTP/prod-level proof pending UAT |
+| **User-Centric Applications** | `POST /api/campaigns/[id]/apply` | Neon DB / Session | **COMPONENT PROVEN** | Owned by internal `userId`; live diner flow blocked on Flynet approval |
 | **Deterministic Qualification Engine** | `lib/qualification.ts` | Pure Logic | **COMPONENT PROVEN** | 5/5 unit tests pass |
 | **Product Lifecycle & Capacity Rules** | `lib/campaign.test.mjs` | Pure Logic / DB | **COMPONENT PROVEN** | 10/10 unit tests pass |
 | **AI Campaign Architect & Synthesis** | `lib/ai.ts` | DeepSeek / OpenAI | **COMPONENT PROVEN** | Operational with heuristic fallbacks & zero emoji |
@@ -77,6 +87,17 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 | **FLY Reward Issuance & Idempotency**| `POST /issue_reward` | `FLYNET_API_KEY` (`write:rewards`) | **IMPLEMENTED / AWAITING APPROVAL** | Blocked on Flynet Make approval |
 
 ---
+
+## Directive 002G Remediation Record (2026-09-19)
+- **Secret incident**: literal removed from `lib/audit.test.mjs` (generic property checks now); reachable history rewritten + `refs/original` expired + `gc --prune=now`; local `NEON_AUTH_COOKIE_SECRET` rotated (no value recorded). Vercel rotation = HUMAN ACTION (builder cannot set Vercel env).
+- **Test isolation**: `db.integration.test.mjs` REQUIRES `TEST_DATABASE_URL`, SKIPs without it, REFUSEs when equal to `DATABASE_URL`. No test Neon branch exists yet (human action).
+- **Prod DB**: deleted 7 `usr_test_*` + 6 `rest_test_*` + 6 `camp_test_*` + linked memberships/apps (FK-safe); verified 0/0/0; 3 demo campaigns intact; operator workspace `rest_1789802609967_2y06y` untouched.
+- **Error handling**: `lib/error-messages.*` + `CalloutAlert` + `ErrorBoundary` + `app/error.tsx`/`global-error.tsx`/`not-found.tsx` + page wiring, committed. `.mjs` mirrors `.ts` for node tests (keep in sync).
+- **API sanitization**: new `lib/api-errors.ts` (`safeError`/`safeCatch`/`proofGuard`); no `err.message`/provider internals in any API response or OAuth redirect; server-side logging preserved. Stable codes: VALIDATION/UNAUTHORIZED/FORBIDDEN/WORKSPACE/FLYNET_UNAVAILABLE/NOT_FOUND/CONFLICT/CAMPAIGN_FULL/ATTENDANCE_REQUIRED/SERVICE_TEMPORARY.
+- **Proof routes**: 404 in production via `proofGuard`; reward proof requires caller `proofRunId` → `blackpalate:proof-reward:<proofRunId>` (no `Date.now()`). Main rewards unchanged (`blackpalate:reward:<applicationId>`, `txHash=null`, 5 states).
+- **0-vs-9 root cause**: measurement artifact — count renders client-side from `[]` initial state; static scrape sees pre-hydration `0`. API shape `{ok, campaigns}` matches client handler. Post-cleanup prod holds 3 demo campaigns.
+- **Prisma**: removed (`prisma/`, `@prisma/client`, `prisma` dev dep); truth = `lib/db/schema.sql` + `repository.ts`. Added explicit `dotenv` dev dep (was transitive).
+- **Not finished**: no Google UAT, Flynet blocked, no human manual UAT. Do NOT call finished.
 
 ## Next Recommended Action
 Awaiting Blackbird admin approval in Flynet Make. Once approved:

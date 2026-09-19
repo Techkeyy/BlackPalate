@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { createFlynetMemberClient } from '@/lib/flynet';
 import { getAuthenticatedOperator, resolveOrCreateFlynetDinerUser } from '@/lib/auth';
+import { safeCatch } from '@/lib/api-errors';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,9 +73,6 @@ export async function GET(req: Request) {
       },
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err.message || 'Failed to fetch user tastings' },
-      { status: 500 }
-    );
+    return safeCatch(err);
   }
 }

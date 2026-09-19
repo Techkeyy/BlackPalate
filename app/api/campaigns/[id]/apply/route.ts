@@ -3,6 +3,7 @@ import { db } from '@/lib/db/repository';
 import { evaluateQualification, QualificationRule } from '@/lib/qualification';
 import { createFlynetMemberClient } from '@/lib/flynet';
 import { resolveOrCreateFlynetDinerUser } from '@/lib/auth';
+import { safeError, safeCatch } from '@/lib/api-errors';
 
 export async function POST(
   req: Request,
@@ -12,14 +13,11 @@ export async function POST(
     const campaign = await db.getCampaignById(params.id);
 
     if (!campaign) {
-      return NextResponse.json({ ok: false, error: 'Campaign not found' }, { status: 404 });
+      return safeError(404, 'NOT_FOUND');
     }
 
     if (campaign.filledSlots >= campaign.maxSlots) {
-      return NextResponse.json(
-        { ok: false, error: 'Tasting campaign capacity is fully filled' },
-        { status: 400 }
-      );
+      return safeError(400, 'CAMPAIGN_FULL', 'campaign capacity reached');
     }
 
     // 1. Authenticate member via HttpOnly session cookie
@@ -34,15 +32,7 @@ export async function POST(
 
     // If no active Blackbird session token exists: fail closed with truthful message
     if (!accessToken) {
-      return NextResponse.json(
-        {
-          ok: false,
-          code: 'FLYNET_UNAVAILABLE',
-          error: 'Flynet authentication required. Please connect your Blackbird account.',
-          message: 'Blackbird dining history verification is temporarily unavailable while Flynet access is being activated.',
-        },
-        { status: 503 }
-      );
+      return safeError(503, 'FLYNET_UNAVAILABLE', 'apply without Blackbird session');
     }
 
     let dinerFlynetId: string;
@@ -65,15 +55,7 @@ export async function POST(
         displayName: dinerName,
       });
     } catch {
-      return NextResponse.json(
-        {
-          ok: false,
-          code: 'FLYNET_EVALUATION_FAILED',
-          error: 'Failed to retrieve dining history from Flynet.',
-          message: 'Blackbird dining verification is temporarily unavailable while Flynet access is being activated.',
-        },
-        { status: 503 }
-      );
+      return safeError(503, 'FLYNET_UNAVAILABLE', 'Flynet profile/check-ins fetch failed');
     }
 
     // 2. Build deterministic qualification rules
@@ -139,9 +121,6 @@ export async function POST(
       campaign,
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err.message || 'Qualification evaluation failed' },
-      { status: 500 }
-    );
+    return safeCatch(err);
   }
 }

@@ -9,8 +9,12 @@ import {
   FlynetRestaurantMetadata,
   QualificationRule,
 } from '@/lib/qualification';
+import { proofGuard, safeError } from '@/lib/api-errors';
 
 export async function POST(req: Request) {
+  const blocked = proofGuard();
+  if (blocked) return blocked;
+
   const cookieHeader = req.headers.get('cookie') || '';
   const cookies = Object.fromEntries(
     cookieHeader.split(';').map(c => {
@@ -22,13 +26,7 @@ export async function POST(req: Request) {
   const accessToken = cookies['bp_access_token'];
 
   if (!accessToken) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'OAuth access token required. Connect Blackbird account first.',
-      },
-      { status: 401 }
-    );
+    return safeError(401, 'UNAUTHORIZED', 'qualify proof without session');
   }
 
   const member = createFlynetMemberClient(accessToken);
@@ -88,14 +86,10 @@ export async function POST(req: Request) {
     });
   } catch (err: any) {
     const norm = normalizeFlynetError(err);
-    return NextResponse.json(
-      {
-        success: false,
-        error: norm.message,
-        kind: norm.kind,
-        code: norm.code,
-      },
-      { status: norm.kind === 'unauthorized' ? 401 : norm.kind === 'forbidden' ? 403 : 500 }
+    return safeError(
+      norm.kind === 'unauthorized' ? 401 : norm.kind === 'forbidden' ? 403 : 500,
+      norm.kind === 'unauthorized' ? 'UNAUTHORIZED' : 'FLYNET_UNAVAILABLE',
+      norm
     );
   }
 }

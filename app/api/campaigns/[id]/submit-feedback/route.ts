@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { createFlynetDiscoveryClient, createFlynetMemberClient } from '@/lib/flynet';
 import { resolveOrCreateFlynetDinerUser } from '@/lib/auth';
+import { safeError, safeCatch } from '@/lib/api-errors';
 
 export async function POST(
   req: Request,
@@ -11,10 +12,7 @@ export async function POST(
     const body = await req.json();
 
     if (!body.applicationId || !body.overallScore || !body.dishFeedback) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing required feedback fields: applicationId, overallScore, dishFeedback' },
-        { status: 400 }
-      );
+      return safeError(400, 'VALIDATION');
     }
 
     // 1. Authenticate member from HttpOnly session cookie
@@ -28,10 +26,7 @@ export async function POST(
     const accessToken = cookies['bp_access_token'];
 
     if (!accessToken) {
-      return NextResponse.json(
-        { ok: false, error: 'UNAUTHORIZED', message: 'Authentication required to submit feedback.' },
-        { status: 401 }
-      );
+      return safeError(401, 'UNAUTHORIZED', 'feedback without Blackbird session');
     }
 
     let authenticatedDinerId: string;
@@ -45,51 +40,32 @@ export async function POST(
         displayName: (profile as any).display_name || (profile as any).name,
       });
     } catch {
-      return NextResponse.json(
-        { ok: false, error: 'INVALID_SESSION', message: 'Active Blackbird session expired or invalid.' },
-        { status: 401 }
-      );
+      return safeError(401, 'UNAUTHORIZED', 'invalid/expired Blackbird session on feedback');
     }
 
     // 2. Load authoritative campaign from database
     const campaign = await db.getCampaignById(params.id);
     if (!campaign) {
-      return NextResponse.json({ ok: false, error: 'Campaign not found' }, { status: 404 });
+      return safeError(404, 'NOT_FOUND');
     }
 
     // 3. Load and verify authoritative application ownership (prevent IDOR)
     const application = await db.getApplicationById(body.applicationId);
     if (!application) {
-      return NextResponse.json(
-        { ok: false, error: 'APPLICATION_NOT_FOUND', message: 'No valid tasting enrollment found.' },
-        { status: 404 }
-      );
+      return safeError(404, 'NOT_FOUND', 'feedback for unknown application');
     }
 
     if (application.userId !== internalUser.id && application.dinerFlynetId !== authenticatedDinerId) {
-      return NextResponse.json(
-        { ok: false, error: 'FORBIDDEN', message: 'You cannot submit feedback for another diner.' },
-        { status: 403 }
-      );
+      return safeError(403, 'FORBIDDEN', 'feedback for another diner blocked');
     }
 
     if (application.campaignId !== params.id) {
-      return NextResponse.json(
-        { ok: false, error: 'MISMATCH', message: 'Application does not match this tasting campaign.' },
-        { status: 400 }
-      );
+      return safeError(400, 'VALIDATION');
     }
 
     // 4. Verify application state allows feedback submission
     if (application.status !== 'ATTENDANCE_VERIFIED' && application.status !== 'SUBMITTED') {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'ATTENDANCE_REQUIRED',
-          message: 'Tasting attendance must be verified at the venue before feedback can be submitted.',
-        },
-        { status: 403 }
-      );
+      return safeError(403, 'ATTENDANCE_REQUIRED', 'feedback before attendance verification');
     }
 
     // 5. Record structured sensory feedback with internal userId
@@ -134,7 +110,9 @@ export async function POST(
       } catch (err: any) {
         const isTimeout = err?.code === 'ETIMEDOUT' || err?.message?.includes('timeout') || err?.status === 504;
         rewardStatus = isTimeout ? 'UNKNOWN' : 'FAILED';
-        rewardError = err.message || 'Reward issuance failure';
+        // Never store provider internals; reconciliation uses the stable idempotency key.
+        console.error('[BlackPalate reward issuance failed]:', err);
+        rewardError = 'Reward issuance did not complete; feedback is stored and will be reconciled.';
       }
     } else {
       rewardStatus = 'PENDING';
@@ -162,9 +140,6 @@ export async function POST(
       message: 'Sensory feedback submitted successfully.',
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err.message || 'Feedback submission failed' },
-      { status: 500 }
-    );
+    return safeCatch(err);
   }
 }

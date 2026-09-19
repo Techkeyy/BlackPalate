@@ -8,10 +8,11 @@ export async function GET(req: Request) {
   const error = url.searchParams.get('error');
   const errorDescription = url.searchParams.get('error_description');
 
-  // Handle explicit OAuth errors from consent screen
+  // Handle explicit OAuth errors from consent screen (never reflect provider detail)
   if (error) {
+    console.error('[BlackPalate OAuth provider error]:', error, errorDescription);
     return NextResponse.redirect(
-      new URL(`/?error=${encodeURIComponent(errorDescription || error)}`, req.url)
+      new URL('/?error=oauth_provider_error', req.url)
     );
   }
 
@@ -89,8 +90,9 @@ export async function GET(req: Request) {
 
     return response;
   } catch (err: any) {
+    console.error('[BlackPalate OAuth token exchange failed]:', err);
     return NextResponse.redirect(
-      new URL(`/?error=${encodeURIComponent(err.message || 'OAuth token exchange failed')}`, req.url)
+      new URL('/?error=oauth_failed', req.url)
     );
   }
 }

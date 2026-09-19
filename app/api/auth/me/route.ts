@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createFlynetMemberClient, normalizeFlynetError } from '@/lib/flynet';
 import { neonAuth, resolveOrCreateRestaurantUser, resolveOrCreateFlynetDinerUser } from '@/lib/auth';
 import { db } from '@/lib/db/repository';
+import { safeError } from '@/lib/api-errors';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,14 +71,10 @@ export async function GET(req: Request) {
       });
     } catch (err: any) {
       const norm = normalizeFlynetError(err);
-      return NextResponse.json(
-        {
-          authenticated: false,
-          error: norm.message,
-          kind: norm.kind,
-          code: norm.code,
-        },
-        { status: norm.kind === 'unauthorized' ? 401 : norm.kind === 'forbidden' ? 403 : 500 }
+      return safeError(
+        norm.kind === 'unauthorized' ? 401 : norm.kind === 'forbidden' ? 403 : 500,
+        norm.kind === 'unauthorized' ? 'UNAUTHORIZED' : 'FLYNET_UNAVAILABLE',
+        norm
       );
     }
   }
