@@ -37,6 +37,7 @@ import {
   getRewardStatusDisplay,
   UserSafeError,
 } from '@/lib/error-messages';
+import { authClient } from '@/lib/auth/client';
 
 interface Question {
   id: string;
@@ -239,20 +240,23 @@ export default function BlackPalateApp() {
     }
   }
 
-  // Handle Restaurant Operator Login (Managed Neon Auth)
+  // Handle Restaurant Operator Login (Managed Neon Auth via official client)
   async function handleOperatorLogin() {
     try {
-      const callback = typeof window !== 'undefined' ? window.location.origin : '';
-      window.location.href = `/api/auth/neon/sign-in/social?provider=google&callbackURL=${encodeURIComponent(callback)}`;
+      await authClient.signIn.social({
+        provider: 'google',
+        callbackURL: typeof window !== 'undefined' ? window.location.origin : '/',
+      });
     } catch (err: any) {
-      setStatusBanner({ type: 'warning', text: 'Restaurant sign-in could not start. Please try again.' });
+      const userErr = mapErrorToUserMessage(err, 'auth');
+      setStatusBanner({ type: 'warning', text: userErr.message });
     }
   }
 
   // Handle Logout
   async function handleLogout() {
     try {
-      await fetch('/api/auth/neon/sign-out', { method: 'POST' }).catch(() => null);
+      await authClient.signOut();
       setIsAuthenticated(false);
       setAuthRole(null);
       setSessionUser(null);
@@ -261,7 +265,8 @@ export default function BlackPalateApp() {
       setStatusBanner({ type: 'info', text: 'Signed out successfully.' });
       loadData();
     } catch (err: any) {
-      console.error('Logout error:', err);
+      const userErr = mapErrorToUserMessage(err, 'auth');
+      setStatusBanner({ type: 'warning', text: userErr.message });
     }
   }
 
@@ -5057,7 +5062,7 @@ export default function BlackPalateApp() {
                     Managed Restaurant Auth
                   </td>
                   <td style={{ padding: '12px 10px' }}>
-                    <code>/api/auth/neon/*</code>
+                    <code>/api/auth/*</code>
                   </td>
                   <td
                     style={{
