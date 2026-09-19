@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
-import { synthesizeFeedbackWithAI } from '@/lib/ai';
+import { synthesizeFeedbackWithAI, AiResponseMetadata } from '@/lib/ai';
 
 export async function GET(
   req: Request,
@@ -15,11 +15,13 @@ export async function GET(
     // Check if report already exists in database
     let report = await db.getSynthesis(params.id);
     const submissions = await db.getFeedbacks(params.id);
+    let meta: AiResponseMetadata = { mode: 'template', provider: 'template' };
 
     if (!report && submissions.length > 0) {
       // Generate new AI synthesis report
-      const generated = await synthesizeFeedbackWithAI(campaign, submissions);
-      report = await db.saveSynthesis(generated);
+      const result = await synthesizeFeedbackWithAI(campaign, submissions);
+      report = await db.saveSynthesis(result.report);
+      meta = result.meta;
     } else if (!report) {
       // Fallback empty draft report
       report = {
@@ -39,6 +41,7 @@ export async function GET(
       report,
       submissionsCount: submissions.length,
       submissions,
+      meta,
     });
   } catch (err: any) {
     return NextResponse.json(
@@ -47,4 +50,3 @@ export async function GET(
     );
   }
 }
-

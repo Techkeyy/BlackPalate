@@ -41,6 +41,8 @@ export interface Campaign {
   filledSlots: number;
   status: 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'COMPLETED';
   feedbackQuestions: FeedbackQuestion[];
+  isDemo?: boolean;
+  creatorKey?: string;
   createdAt: string;
   updatedAt: string;
 }

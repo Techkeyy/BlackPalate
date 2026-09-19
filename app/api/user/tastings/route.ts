@@ -1,12 +1,51 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
+import { createFlynetMemberClient } from '@/lib/flynet';
 
 export async function GET(req: Request) {
   try {
-    const url = new URL(req.url);
-    const userId = url.searchParams.get('userId') || 'usr_blackbird_sample_1';
+    const cookieHeader = req.headers.get('cookie') || '';
+    const cookies = Object.fromEntries(
+      cookieHeader.split(';').map(c => {
+        const [k, v] = c.trim().split('=');
+        return [k, decodeURIComponent(v || '')];
+      })
+    );
+    const accessToken = cookies['bp_access_token'];
 
-    const userApps = await db.getUserApplications(userId);
+    // Unauthenticated state: Return empty state safely without exposing any other user's records
+    if (!accessToken) {
+      return NextResponse.json({
+        ok: true,
+        authenticated: false,
+        tastings: {
+          upcoming: [],
+          needsAction: [],
+          completed: [],
+          all: [],
+        },
+      });
+    }
+
+    let dinerFlynetId: string;
+    try {
+      const member = createFlynetMemberClient(accessToken);
+      const profile = await member.getProfile();
+      dinerFlynetId = profile.id;
+    } catch {
+      return NextResponse.json({
+        ok: true,
+        authenticated: false,
+        tastings: {
+          upcoming: [],
+          needsAction: [],
+          completed: [],
+          all: [],
+        },
+      });
+    }
+
+    const userApps = await db.getUserApplications(dinerFlynetId);
 
     const upcoming = userApps.filter(
       a => a.status === 'QUALIFIED' || a.status === 'JOINED' || a.status === 'ATTENDANCE_PENDING'
@@ -18,6 +57,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       ok: true,
+      authenticated: true,
       tastings: {
         upcoming,
         needsAction,
@@ -32,4 +72,3 @@ export async function GET(req: Request) {
     );
   }
 }
-

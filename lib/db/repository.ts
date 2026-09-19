@@ -9,11 +9,11 @@ import {
   ApplicationStatus,
 } from './types';
 
-// In-memory persistent fallback store for development resilience & seed data
-let inMemoryRestaurants: Restaurant[] = [
+// Explicit Seed Data for development & demo presentation
+const SEED_RESTAURANTS: Restaurant[] = [
   {
     id: 'rest_01',
-    flynetId: 'fly_rest_cacio_nyc',
+    flynetId: null,
     name: 'Via Carota / Roman Osteria',
     cuisine: ['Italian', 'Pasta', 'Roman'],
     neighborhood: 'West Village, NYC',
@@ -23,7 +23,7 @@ let inMemoryRestaurants: Restaurant[] = [
   },
   {
     id: 'rest_02',
-    flynetId: 'fly_rest_sando_nyc',
+    flynetId: null,
     name: 'Kappo Wagyu Lab',
     cuisine: ['Japanese', 'Wagyu', 'Omakase'],
     neighborhood: 'Lower East Side, NYC',
@@ -33,7 +33,7 @@ let inMemoryRestaurants: Restaurant[] = [
   },
   {
     id: 'rest_03',
-    flynetId: 'fly_rest_crudo_nyc',
+    flynetId: null,
     name: 'Lure & Tide Raw Bar',
     cuisine: ['Seafood', 'Mediterranean', 'Raw Bar'],
     neighborhood: 'SoHo, NYC',
@@ -43,7 +43,7 @@ let inMemoryRestaurants: Restaurant[] = [
   },
   {
     id: 'rest_04',
-    flynetId: 'fly_rest_nori_nyc',
+    flynetId: null,
     name: 'Nori Ramen House',
     cuisine: ['Japanese', 'Ramen'],
     neighborhood: 'East Village, NYC',
@@ -53,9 +53,9 @@ let inMemoryRestaurants: Restaurant[] = [
   },
 ];
 
-let inMemoryCampaigns: Campaign[] = [
+const SEED_CAMPAIGNS: Campaign[] = [
   {
-    id: 'camp_01',
+    id: 'demo_camp_01',
     title: 'Dry-Aged Guanciale Carbonara Benchmark',
     description:
       'We are piloting a 45-day cured Umbrian guanciale cut with farm-fresh organic yolk emulsion. Seeking pasta enthusiasts with verified Italian dining visits.',
@@ -76,6 +76,7 @@ let inMemoryCampaigns: Campaign[] = [
     maxSlots: 8,
     filledSlots: 3,
     status: 'ACTIVE',
+    isDemo: true,
     feedbackQuestions: [
       {
         id: 'q1',
@@ -103,7 +104,7 @@ let inMemoryCampaigns: Campaign[] = [
     updatedAt: new Date().toISOString(),
   },
   {
-    id: 'camp_02',
+    id: 'demo_camp_02',
     title: 'Spicy Miso Ramen & Charred Chashu Test',
     description:
       'Testing an unreleased rich 18-hour spicy miso pork broth with hand-pulled wavy noodles and torch-finished Kurobuta pork belly.',
@@ -124,6 +125,7 @@ let inMemoryCampaigns: Campaign[] = [
     maxSlots: 6,
     filledSlots: 4,
     status: 'ACTIVE',
+    isDemo: true,
     feedbackQuestions: [
       {
         id: 'q1',
@@ -151,7 +153,7 @@ let inMemoryCampaigns: Campaign[] = [
     updatedAt: new Date().toISOString(),
   },
   {
-    id: 'camp_03',
+    id: 'demo_camp_03',
     title: 'A5 Miyazaki Katsu Sando & Smoked Ponzu Mayo',
     description:
       'Testing an unreleased brioche crust formulation with 60-second flash-fried A5 Wagyu striploin. Diners must have verified Japanese dining experience.',
@@ -172,6 +174,7 @@ let inMemoryCampaigns: Campaign[] = [
     maxSlots: 5,
     filledSlots: 1,
     status: 'ACTIVE',
+    isDemo: true,
     feedbackQuestions: [
       {
         id: 'q1',
@@ -194,7 +197,7 @@ let inMemoryCampaigns: Campaign[] = [
     updatedAt: new Date().toISOString(),
   },
   {
-    id: 'camp_04',
+    id: 'demo_camp_04',
     title: 'Hokkaido Scallop Crudo with Finger Lime & Yuzu Kosho',
     description:
       'Recruiting seafood and raw bar diners for first-look tasting of our summer crudo flight.',
@@ -215,6 +218,7 @@ let inMemoryCampaigns: Campaign[] = [
     maxSlots: 12,
     filledSlots: 4,
     status: 'ACTIVE',
+    isDemo: true,
     feedbackQuestions: [
       {
         id: 'q1',
@@ -232,78 +236,12 @@ let inMemoryCampaigns: Campaign[] = [
   },
 ];
 
-let inMemoryApplications: Application[] = [
-  {
-    id: 'app_sample_01',
-    campaignId: 'camp_01',
-    dinerFlynetId: 'usr_blackbird_sample_1',
-    dinerName: 'Marco P.',
-    qualificationProof: {
-      totalCheckIns: 4,
-      cuisineVisits: 2,
-      isNewToVenue: false,
-      qualifiedRuleSummary: ['Total check-ins: 4 >= 2', 'Italian visits: 2 >= 1'],
-    },
-    status: 'SUBMITTED',
-    createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'app_sample_02',
-    campaignId: 'camp_02',
-    dinerFlynetId: 'usr_blackbird_sample_1',
-    dinerName: 'Marco P.',
-    qualificationProof: {
-      totalCheckIns: 4,
-      cuisineVisits: 1,
-      isNewToVenue: false,
-      qualifiedRuleSummary: ['Total check-ins: 4 >= 2', 'Ramen visits: 1 >= 1'],
-    },
-    status: 'JOINED',
-    createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
-
-let inMemoryFeedbacks: FeedbackSubmission[] = [
-  {
-    id: 'fb_sample_01',
-    applicationId: 'app_sample_01',
-    campaignId: 'camp_01',
-    dinerFlynetId: 'usr_blackbird_sample_1',
-    overallScore: 5,
-    ratings: {
-      flavor: 5,
-      presentation: 5,
-      value: 4,
-      portion: 4,
-    },
-    answers: {
-      q1: 5,
-      q2: 'Yes',
-      q3: 'The fat rendering was crispy on the edges with unctuous center. Exactly what Roman purists look for.',
-      q4: 'Definitely Yes',
-    },
-    dishFeedback: 'Exceptional pepper warmth and silky emulsion with zero egg curdling.',
-    suggestions: 'Consider offering a cracked Kampot black pepper alternative.',
-    submittedAt: new Date(Date.now() - 3600000 * 10).toISOString(),
-  },
-];
-
-let inMemoryReceipts: RewardReceipt[] = [
-  {
-    id: 'rcpt_sample_01',
-    applicationId: 'app_sample_01',
-    campaignId: 'camp_01',
-    dinerFlynetId: 'usr_blackbird_sample_1',
-    amountFly: '25',
-    amountFlyWei: '25000000000000000000',
-    idempotencyKey: 'bp_reward_camp_01_app_sample_01_init',
-    status: 'PENDING',
-    error: 'Awaiting Flynet API key & Blackbird admin approval',
-  },
-];
-
+// In-memory state for explicit test & dev memory mode
+let inMemoryRestaurants: Restaurant[] = [...SEED_RESTAURANTS];
+let inMemoryCampaigns: Campaign[] = [...SEED_CAMPAIGNS];
+let inMemoryApplications: Application[] = [];
+let inMemoryFeedbacks: FeedbackSubmission[] = [];
+let inMemoryReceipts: RewardReceipt[] = [];
 let inMemorySynthesis: SynthesisReport[] = [];
 
 export function getDbClient() {
@@ -318,18 +256,30 @@ export function getDbClient() {
   return null;
 }
 
+function checkDatabaseConfig() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const dbUrl = process.env.DATABASE_URL;
+
+  if (isProduction && (!dbUrl || !dbUrl.startsWith('postgres'))) {
+    throw new Error(
+      'DATABASE_UNAVAILABLE: Production database connection string (DATABASE_URL) is required. In-memory fallback is disabled in production.'
+    );
+  }
+}
+
 export const db = {
   async getCampaigns(): Promise<Campaign[]> {
+    checkDatabaseConfig();
     const sql = getDbClient();
     if (sql) {
       try {
         const rows = await sql`
           SELECT c.*, r.name as "restaurantName", r.cuisine as "restaurantCuisine", r.neighborhood as "restaurantNeighborhood"
           FROM campaigns c
-          JOIN restaurants r ON c.restaurant_id = r.id
+          LEFT JOIN restaurants r ON c.restaurant_id = r.id
           ORDER BY c.created_at DESC
         `;
-        if (rows && rows.length > 0) {
+        if (rows) {
           return rows.map((r: any) => ({
             id: r.id,
             title: r.title,
@@ -337,8 +287,8 @@ export const db = {
             dishFocus: r.dish_focus,
             researchGoal: r.research_goal,
             restaurantId: r.restaurant_id,
-            restaurantName: r.restaurantName,
-            restaurantCuisine: r.restaurantCuisine,
+            restaurantName: r.restaurantName || 'Restaurant Partner',
+            restaurantCuisine: r.restaurantCuisine || [],
             location: r.location || r.restaurantNeighborhood || 'NYC',
             timing: r.timing || 'Flexible schedule',
             timeCommitment: r.time_commitment || '45 minutes',
@@ -352,13 +302,17 @@ export const db = {
             maxSlots: r.max_slots,
             filledSlots: r.filled_slots,
             status: r.status,
+            isDemo: r.is_demo ?? false,
+            creatorKey: r.creator_key,
             feedbackQuestions: r.feedback_questions || [],
             createdAt: r.created_at,
             updatedAt: r.updated_at,
           }));
         }
-      } catch (err) {
-        console.warn('[DB] Fallback to in-memory store:', err);
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
       }
     }
     return inMemoryCampaigns;
@@ -370,6 +324,7 @@ export const db = {
   },
 
   async createCampaign(campaign: Omit<Campaign, 'id' | 'createdAt' | 'updatedAt' | 'filledSlots'>): Promise<Campaign> {
+    checkDatabaseConfig();
     const newId = `camp_${Date.now()}`;
     const newCampaign: Campaign = {
       ...campaign,
@@ -384,19 +339,24 @@ export const db = {
       try {
         await sql`
           INSERT INTO campaigns (
-            id, title, description, dish_focus, restaurant_id, target_cuisines,
-            min_total_check_ins, min_cuisine_visits, must_be_new_to_venue,
-            reward_fly, reward_fly_wei, max_slots, filled_slots, status, feedback_questions
+            id, title, description, dish_focus, research_goal, restaurant_id, target_cuisines,
+            location, timing, time_commitment, min_total_check_ins, min_cuisine_visits, must_be_new_to_venue,
+            reward_fly, reward_fly_wei, max_slots, filled_slots, status, is_demo, creator_key, feedback_questions
           ) VALUES (
-            ${newCampaign.id}, ${newCampaign.title}, ${newCampaign.description},
-            ${newCampaign.dishFocus}, ${newCampaign.restaurantId}, ${newCampaign.targetCuisines},
+            ${newCampaign.id}, ${newCampaign.title}, ${newCampaign.description}, ${newCampaign.dishFocus},
+            ${newCampaign.researchGoal || null}, ${newCampaign.restaurantId}, ${newCampaign.targetCuisines},
+            ${newCampaign.location || 'NYC'}, ${newCampaign.timing || 'Flexible'}, ${newCampaign.timeCommitment || '45 minutes'},
             ${newCampaign.minTotalCheckIns}, ${newCampaign.minCuisineVisits}, ${newCampaign.mustBeNewToVenue},
             ${newCampaign.rewardFly}, ${newCampaign.rewardFlyWei || null}, ${newCampaign.maxSlots},
-            ${newCampaign.filledSlots}, ${newCampaign.status}, ${JSON.stringify(newCampaign.feedbackQuestions)}
+            ${newCampaign.filledSlots}, ${newCampaign.status}, ${newCampaign.isDemo ?? false},
+            ${newCampaign.creatorKey || null}, ${JSON.stringify(newCampaign.feedbackQuestions)}
           )
         `;
-      } catch (err) {
-        console.warn('[DB] Postgres insert error, stored in-memory:', err);
+        return newCampaign;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database insert failed: ${err.message}`);
+        }
       }
     }
 
@@ -405,13 +365,109 @@ export const db = {
   },
 
   async getApplications(campaignId?: string): Promise<Application[]> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = campaignId
+          ? await sql`SELECT * FROM applications WHERE campaign_id = ${campaignId} ORDER BY created_at DESC`
+          : await sql`SELECT * FROM applications ORDER BY created_at DESC`;
+        return rows.map((r: any) => ({
+          id: r.id,
+          campaignId: r.campaign_id,
+          dinerFlynetId: r.diner_flynet_id,
+          dinerName: r.diner_name,
+          dinerAvatar: r.diner_avatar,
+          qualificationProof: r.qualification_proof,
+          status: r.status,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        }));
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
     if (campaignId) {
       return inMemoryApplications.filter(a => a.campaignId === campaignId);
     }
     return inMemoryApplications;
   },
 
+  async getApplicationById(id: string): Promise<Application | null> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = await sql`SELECT * FROM applications WHERE id = ${id} LIMIT 1`;
+        if (rows && rows.length > 0) {
+          const r = rows[0];
+          return {
+            id: r.id,
+            campaignId: r.campaign_id,
+            dinerFlynetId: r.diner_flynet_id,
+            dinerName: r.diner_name,
+            dinerAvatar: r.diner_avatar,
+            qualificationProof: r.qualification_proof,
+            status: r.status,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
+          };
+        }
+        return null;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
+    return inMemoryApplications.find(a => a.id === id) || null;
+  },
+
   async getUserApplications(dinerFlynetId: string): Promise<Array<Application & { campaign?: Campaign }>> {
+    checkDatabaseConfig();
+    if (!dinerFlynetId) return [];
+
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = await sql`
+          SELECT a.*, c.title as "campTitle", c.dish_focus as "campDishFocus", c.reward_fly as "campRewardFly",
+                 c.timing as "campTiming", c.location as "campLocation", r.name as "restaurantName"
+          FROM applications a
+          JOIN campaigns c ON a.campaign_id = c.id
+          LEFT JOIN restaurants r ON c.restaurant_id = r.id
+          WHERE a.diner_flynet_id = ${dinerFlynetId}
+          ORDER BY a.created_at DESC
+        `;
+        return rows.map((r: any) => ({
+          id: r.id,
+          campaignId: r.campaign_id,
+          dinerFlynetId: r.diner_flynet_id,
+          dinerName: r.diner_name,
+          dinerAvatar: r.diner_avatar,
+          qualificationProof: r.qualification_proof,
+          status: r.status,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+          campaign: {
+            id: r.campaign_id,
+            title: r.campTitle,
+            dishFocus: r.campDishFocus,
+            rewardFly: r.campRewardFly,
+            timing: r.campTiming,
+            location: r.campLocation,
+            restaurantName: r.restaurantName,
+          } as Campaign,
+        }));
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
+
     const apps = inMemoryApplications.filter(a => a.dinerFlynetId === dinerFlynetId);
     const campaigns = await this.getCampaigns();
     return apps.map(app => ({
@@ -421,6 +477,36 @@ export const db = {
   },
 
   async getApplication(campaignId: string, dinerFlynetId: string): Promise<Application | null> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = await sql`
+          SELECT * FROM applications
+          WHERE campaign_id = ${campaignId} AND diner_flynet_id = ${dinerFlynetId}
+          LIMIT 1
+        `;
+        if (rows && rows.length > 0) {
+          const r = rows[0];
+          return {
+            id: r.id,
+            campaignId: r.campaign_id,
+            dinerFlynetId: r.diner_flynet_id,
+            dinerName: r.diner_name,
+            dinerAvatar: r.diner_avatar,
+            qualificationProof: r.qualification_proof,
+            status: r.status,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
+          };
+        }
+        return null;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
     return (
       inMemoryApplications.find(
         a => a.campaignId === campaignId && a.dinerFlynetId === dinerFlynetId
@@ -429,27 +515,59 @@ export const db = {
   },
 
   async createApplication(appData: Omit<Application, 'id' | 'createdAt' | 'updatedAt'>): Promise<Application> {
+    checkDatabaseConfig();
     const existing = await this.getApplication(appData.campaignId, appData.dinerFlynetId);
     if (existing) return existing;
 
+    const newId = `app_${Date.now()}`;
     const newApp: Application = {
       ...appData,
-      id: `app_${Date.now()}`,
+      id: newId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    inMemoryApplications.push(newApp);
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        await sql`
+          INSERT INTO applications (id, campaign_id, diner_flynet_id, diner_name, diner_avatar, qualification_proof, status)
+          VALUES (${newApp.id}, ${newApp.campaignId}, ${newApp.dinerFlynetId}, ${newApp.dinerName || null},
+                  ${newApp.dinerAvatar || null}, ${JSON.stringify(newApp.qualificationProof || null)}, ${newApp.status})
+        `;
+        await sql`
+          UPDATE campaigns SET filled_slots = filled_slots + 1 WHERE id = ${newApp.campaignId}
+        `;
+        return newApp;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database insert failed: ${err.message}`);
+        }
+      }
+    }
 
+    inMemoryApplications.push(newApp);
     const camp = inMemoryCampaigns.find(c => c.id === appData.campaignId);
     if (camp) {
       camp.filledSlots += 1;
     }
-
     return newApp;
   },
 
   async updateApplicationStatus(id: string, status: ApplicationStatus): Promise<Application | null> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        await sql`UPDATE applications SET status = ${status}, updated_at = NOW() WHERE id = ${id}`;
+        return this.getApplicationById(id);
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database update failed: ${err.message}`);
+        }
+      }
+    }
+
     const app = inMemoryApplications.find(a => a.id === id);
     if (app) {
       app.status = status;
@@ -460,10 +578,42 @@ export const db = {
   },
 
   async createFeedback(feedback: Omit<FeedbackSubmission, 'id' | 'submittedAt'>): Promise<FeedbackSubmission> {
-    const existing = inMemoryFeedbacks.find(f => f.applicationId === feedback.applicationId);
-    if (existing) {
-      return existing;
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = await sql`SELECT id FROM feedback_submissions WHERE application_id = ${feedback.applicationId} LIMIT 1`;
+        if (rows && rows.length > 0) {
+          const existing = rows[0];
+          return {
+            ...feedback,
+            id: existing.id,
+            submittedAt: new Date().toISOString(),
+          };
+        }
+
+        const newId = `fb_${Date.now()}`;
+        await sql`
+          INSERT INTO feedback_submissions (id, application_id, campaign_id, diner_flynet_id, overall_score, ratings, answers, dish_feedback, suggestions)
+          VALUES (${newId}, ${feedback.applicationId}, ${feedback.campaignId}, ${feedback.dinerFlynetId}, ${feedback.overallScore},
+                  ${JSON.stringify(feedback.ratings)}, ${JSON.stringify(feedback.answers)}, ${feedback.dishFeedback}, ${feedback.suggestions || null})
+        `;
+        await sql`UPDATE applications SET status = 'SUBMITTED', updated_at = NOW() WHERE id = ${feedback.applicationId}`;
+
+        return {
+          ...feedback,
+          id: newId,
+          submittedAt: new Date().toISOString(),
+        };
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database insert failed: ${err.message}`);
+        }
+      }
     }
+
+    const existing = inMemoryFeedbacks.find(f => f.applicationId === feedback.applicationId);
+    if (existing) return existing;
 
     const newFb: FeedbackSubmission = {
       ...feedback,
@@ -477,10 +627,58 @@ export const db = {
   },
 
   async getFeedbacks(campaignId: string): Promise<FeedbackSubmission[]> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = await sql`SELECT * FROM feedback_submissions WHERE campaign_id = ${campaignId} ORDER BY submitted_at DESC`;
+        return rows.map((r: any) => ({
+          id: r.id,
+          applicationId: r.application_id,
+          campaignId: r.campaign_id,
+          dinerFlynetId: r.diner_flynet_id,
+          overallScore: r.overall_score,
+          ratings: r.ratings,
+          answers: r.answers,
+          dishFeedback: r.dish_feedback,
+          suggestions: r.suggestions,
+          submittedAt: r.submitted_at,
+        }));
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
     return inMemoryFeedbacks.filter(f => f.campaignId === campaignId);
   },
 
   async createRewardReceipt(receipt: Omit<RewardReceipt, 'id'>): Promise<RewardReceipt> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const newId = `rcpt_${Date.now()}`;
+        await sql`
+          INSERT INTO reward_receipts (id, application_id, campaign_id, diner_flynet_id, amount_fly, amount_fly_wei, tx_hash, idempotency_key, status, error)
+          VALUES (${newId}, ${receipt.applicationId}, ${receipt.campaignId}, ${receipt.dinerFlynetId}, ${receipt.amountFly}, ${receipt.amountFlyWei},
+                  ${receipt.txHash || null}, ${receipt.idempotencyKey}, ${receipt.status}, ${receipt.error || null})
+          ON CONFLICT (idempotency_key) DO UPDATE SET status = EXCLUDED.status, error = EXCLUDED.error
+        `;
+        return {
+          ...receipt,
+          id: newId,
+        };
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database insert failed: ${err.message}`);
+        }
+      }
+    }
+
+    const existing = inMemoryReceipts.find(r => r.idempotencyKey === receipt.idempotencyKey);
+    if (existing) return existing;
+
     const newReceipt: RewardReceipt = {
       ...receipt,
       id: `rcpt_${Date.now()}`,
@@ -490,6 +688,32 @@ export const db = {
   },
 
   async getRewardReceipts(campaignId?: string): Promise<RewardReceipt[]> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = campaignId
+          ? await sql`SELECT * FROM reward_receipts WHERE campaign_id = ${campaignId}`
+          : await sql`SELECT * FROM reward_receipts`;
+        return rows.map((r: any) => ({
+          id: r.id,
+          applicationId: r.application_id,
+          campaignId: r.campaign_id,
+          dinerFlynetId: r.diner_flynet_id,
+          amountFly: r.amount_fly,
+          amountFlyWei: r.amount_fly_wei,
+          txHash: r.tx_hash,
+          idempotencyKey: r.idempotency_key,
+          status: r.status,
+          issuedAt: r.issued_at,
+          error: r.error,
+        }));
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
     if (campaignId) {
       return inMemoryReceipts.filter(r => r.campaignId === campaignId);
     }
@@ -497,20 +721,64 @@ export const db = {
   },
 
   async getRestaurants(): Promise<Restaurant[]> {
-    return inMemoryRestaurants;
+    return SEED_RESTAURANTS;
   },
 
   async saveSynthesis(report: Omit<SynthesisReport, 'id' | 'generatedAt'>): Promise<SynthesisReport> {
+    checkDatabaseConfig();
+    const newId = `synth_${Date.now()}`;
     const newReport: SynthesisReport = {
       ...report,
-      id: `synth_${Date.now()}`,
+      id: newId,
       generatedAt: new Date().toISOString(),
     };
+
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        await sql`
+          INSERT INTO synthesis_reports (id, campaign_id, executive_summary, flavor_analysis, cohort_trends, recommendations, raw_submission_count)
+          VALUES (${newReport.id}, ${newReport.campaignId}, ${newReport.executiveSummary}, ${newReport.flavorAnalysis},
+                  ${JSON.stringify(newReport.cohortTrends)}, ${newReport.recommendations}, ${newReport.rawSubmissionCount})
+        `;
+        return newReport;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database insert failed: ${err.message}`);
+        }
+      }
+    }
+
     inMemorySynthesis.push(newReport);
     return newReport;
   },
 
   async getSynthesis(campaignId: string): Promise<SynthesisReport | null> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = await sql`SELECT * FROM synthesis_reports WHERE campaign_id = ${campaignId} ORDER BY generated_at DESC LIMIT 1`;
+        if (rows && rows.length > 0) {
+          const r = rows[0];
+          return {
+            id: r.id,
+            campaignId: r.campaign_id,
+            executiveSummary: r.executive_summary,
+            flavorAnalysis: r.flavor_analysis,
+            cohortTrends: r.cohort_trends || [],
+            recommendations: r.recommendations || [],
+            rawSubmissionCount: r.raw_submission_count,
+            generatedAt: r.generated_at,
+          };
+        }
+        return null;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
     return inMemorySynthesis.find(s => s.campaignId === campaignId) || null;
   },
 };

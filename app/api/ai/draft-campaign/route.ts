@@ -12,7 +12,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const draft = await draftCampaignWithAI({
+    const { draft, meta } = await draftCampaignWithAI({
       restaurantName: body.restaurantName,
       dishName: body.dishName,
       cuisine: body.cuisine || 'Fine Dining',
@@ -21,12 +21,11 @@ export async function POST(req: Request) {
       budgetFly: Number(body.budgetFly) || 25,
     });
 
-    return NextResponse.json({ ok: true, draft });
+    return NextResponse.json({ ok: true, draft, meta });
   } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: err.message || 'Failed to generate AI campaign draft' },
+      { ok: false, error: err.message || 'Failed to generate campaign draft' },
       { status: 500 }
     );
   }
 }
-

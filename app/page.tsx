@@ -29,6 +29,7 @@ interface Campaign {
   maxSlots: number;
   filledSlots: number;
   status: string;
+  isDemo?: boolean;
   feedbackQuestions: Question[];
   createdAt: string;
 }
@@ -49,7 +50,6 @@ interface Application {
 }
 
 export default function BlackPalateApp() {
-  // Main Navigation: 'landing' | 'discover' | 'my-tastings' | 'create-tasting' | 'campaign-studio' | 'diagnostics'
   const [activeNav, setActiveNav] = useState<'landing' | 'discover' | 'my-tastings' | 'create-tasting' | 'campaign-studio' | 'diagnostics'>('landing');
 
   // Application Data States
@@ -57,6 +57,7 @@ export default function BlackPalateApp() {
   const [selectedTasting, setSelectedTasting] = useState<Campaign | null>(null);
   const [userApplications, setUserApplications] = useState<Application[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [statusBanner, setStatusBanner] = useState<{ type: 'info' | 'success' | 'warning'; text: string } | null>(null);
 
@@ -73,7 +74,6 @@ export default function BlackPalateApp() {
   const [rewardReceipt, setRewardReceipt] = useState<any>(null);
 
   // Restaurant Campaign Builder State
-  const [builderStep, setBuilderStep] = useState<1 | 2 | 3 | 4>(1);
   const [newCampaign, setNewCampaign] = useState({
     restaurantName: 'Gramercy Tavern',
     dishFocus: 'Wood-Fired Duck Breast with Plum Mostarda',
@@ -98,11 +98,13 @@ export default function BlackPalateApp() {
   // AI Assistant State
   const [aiPromptText, setAiPromptText] = useState('We are testing an artisan smash burger and want 6 diners who eat burgers frequently to tell us if $22 is too expensive.');
   const [isAiDrafting, setIsAiDrafting] = useState(false);
+  const [aiDraftMode, setAiDraftMode] = useState<string | null>(null);
 
   // Restaurant Studio Synthesis View
   const [selectedStudioCampaign, setSelectedStudioCampaign] = useState<Campaign | null>(null);
   const [studioSynthesis, setStudioSynthesis] = useState<any>(null);
   const [studioSubmissions, setStudioSubmissions] = useState<any[]>([]);
+  const [synthesisMode, setSynthesisMode] = useState<string | null>(null);
   const [loadingSynthesis, setLoadingSynthesis] = useState(false);
 
   useEffect(() => {
@@ -122,16 +124,18 @@ export default function BlackPalateApp() {
         }
       }
 
-      // 2. Fetch user auth & tastings
+      // 2. Fetch authenticated session
       const meRes = await fetch('/api/auth/me').catch(() => null);
       if (meRes && meRes.ok) {
         const meData = await meRes.json();
         if (meData.profile) {
           setUserProfile(meData.profile);
+          setIsAuthenticated(true);
         }
       }
 
-      const tastingsRes = await fetch('/api/user/tastings?userId=usr_blackbird_sample_1');
+      // 3. Fetch user tastings
+      const tastingsRes = await fetch('/api/user/tastings');
       const tastingsData = await tastingsRes.json();
       if (tastingsData.ok && tastingsData.tastings?.all) {
         setUserApplications(tastingsData.tastings.all);
@@ -143,24 +147,27 @@ export default function BlackPalateApp() {
     }
   }
 
-  // Handle joining a tasting
+  // Handle joining tasting (fails closed if Flynet is unavailable)
   async function handleJoinTasting(campaign: Campaign) {
-    setStatusBanner({ type: 'info', text: `Verifying qualification for "${campaign.title}"...` });
+    if (!isAuthenticated) {
+      setStatusBanner({
+        type: 'warning',
+        text: 'Blackbird verification is temporarily unavailable while Flynet access is being activated by Blackbird admin.',
+      });
+      return;
+    }
+
+    setStatusBanner({ type: 'info', text: `Evaluating Flynet dining history for "${campaign.title}"...` });
     try {
       const res = await fetch(`/api/campaigns/${campaign.id}/apply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          dinerName: userProfile?.name || 'Marco P.',
-          dinerFlynetId: userProfile?.id || 'usr_blackbird_sample_1',
-          forcePass: true, // Development mode pass while Blackbird admin approval is pending
-        }),
       });
       const data = await res.json();
       if (data.ok) {
         setStatusBanner({
           type: 'success',
-          text: `You have successfully joined the tasting for "${campaign.dishFocus}"! Expected reward: ${campaign.rewardFly} $FLY.`,
+          text: `You have joined the tasting for "${campaign.dishFocus}"! Expected reward: ${campaign.rewardFly} $FLY.`,
         });
         loadData();
         setSelectedTasting(null);
@@ -168,11 +175,11 @@ export default function BlackPalateApp() {
       } else {
         setStatusBanner({
           type: 'warning',
-          text: `Qualification not met: ${data.reasons?.join(', ') || data.error}`,
+          text: data.message || `Qualification not met: ${data.reasons?.join(', ') || data.error}`,
         });
       }
     } catch (err: any) {
-      setStatusBanner({ type: 'warning', text: `Error joining tasting: ${err.message}` });
+      setStatusBanner({ type: 'warning', text: `Error: ${err.message}` });
     }
   }
 
@@ -187,8 +194,7 @@ export default function BlackPalateApp() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          applicationId: `app_${activeFeedbackCampaign.id}_usr_blackbird_sample_1`,
-          dinerFlynetId: userProfile?.id || 'usr_blackbird_sample_1',
+          applicationId: `app_${activeFeedbackCampaign.id}`,
           overallScore: feedbackForm.overallScore,
           ratings: feedbackForm.ratings,
           answers: feedbackForm.answers,
@@ -201,12 +207,12 @@ export default function BlackPalateApp() {
         setRewardReceipt(data.rewardReceipt);
         setStatusBanner({
           type: 'success',
-          text: `Feedback submitted for "${activeFeedbackCampaign.dishFocus}"! Reward pipeline initiated.`,
+          text: `Feedback submitted for "${activeFeedbackCampaign.dishFocus}"!`,
         });
         setActiveFeedbackCampaign(null);
         loadData();
       } else {
-        setStatusBanner({ type: 'warning', text: `Submission error: ${data.error}` });
+        setStatusBanner({ type: 'warning', text: data.message || `Submission error: ${data.error}` });
       }
     } catch (err: any) {
       setStatusBanner({ type: 'warning', text: `Submission failed: ${err.message}` });
@@ -218,7 +224,7 @@ export default function BlackPalateApp() {
   // Handle AI Campaign Drafting
   async function handleDraftWithAi() {
     setIsAiDrafting(true);
-    setStatusBanner({ type: 'info', text: 'Calling BlackPalate AI Strategist to draft tasting campaign...' });
+    setStatusBanner({ type: 'info', text: 'Consulting BlackPalate AI Strategist...' });
     try {
       const res = await fetch('/api/ai/draft-campaign', {
         method: 'POST',
@@ -245,13 +251,16 @@ export default function BlackPalateApp() {
           maxSlots: d.maxSlots || prev.maxSlots,
           questions: d.feedbackQuestions?.length ? d.feedbackQuestions : prev.questions,
         }));
+        setAiDraftMode(data.meta?.mode === 'ai' ? `AI (${data.meta.provider})` : 'BlackPalate Template');
         setStatusBanner({
           type: 'success',
-          text: 'AI draft generated! Review the parameters and publish your tasting campaign.',
+          text: data.meta?.mode === 'ai'
+            ? `Campaign drafted by AI (${data.meta.provider})!`
+            : 'Campaign drafted from BlackPalate culinary template.',
         });
       }
     } catch (err: any) {
-      setStatusBanner({ type: 'warning', text: `AI drafting failed: ${err.message}` });
+      setStatusBanner({ type: 'warning', text: `Drafting failed: ${err.message}` });
     } finally {
       setIsAiDrafting(false);
     }
@@ -281,13 +290,14 @@ export default function BlackPalateApp() {
           rewardFly: newCampaign.rewardFly,
           maxSlots: newCampaign.maxSlots,
           feedbackQuestions: newCampaign.questions,
+          isDemo: false,
         }),
       });
       const data = await res.json();
       if (data.ok) {
         setStatusBanner({
           type: 'success',
-          text: `Tasting campaign "${newCampaign.dishFocus}" published to live database!`,
+          text: `Tasting campaign "${newCampaign.dishFocus}" published to database!`,
         });
         loadData();
         setActiveNav('discover');
@@ -307,6 +317,7 @@ export default function BlackPalateApp() {
       if (data.ok) {
         setStudioSynthesis(data.report);
         setStudioSubmissions(data.submissions || []);
+        setSynthesisMode(data.meta?.mode === 'ai' ? `AI (${data.meta.provider})` : 'Statistical Template');
       }
     } catch (err) {
       console.error('Synthesis error:', err);
@@ -404,9 +415,9 @@ export default function BlackPalateApp() {
           {/* Account / Flynet Connection Pill */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ padding: '6px 12px', borderRadius: '20px', backgroundColor: '#1E293B', border: '1px solid #334155', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: userProfile ? '#10B981' : '#F59E0B' }} />
-              {userProfile ? (
-                <span>Blackbird: <strong>{userProfile.name || userProfile.id}</strong></span>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isAuthenticated ? '#10B981' : '#F59E0B' }} />
+              {isAuthenticated ? (
+                <span>Blackbird: <strong>{userProfile?.name || userProfile?.id}</strong></span>
               ) : (
                 <span title="Awaiting Blackbird admin approval on Flynet Make">
                   Flynet: <strong style={{ color: '#FDE68A' }}>Awaiting Admin Approval</strong>
@@ -468,7 +479,7 @@ export default function BlackPalateApp() {
               Get paid to shape what <br /><span style={{ color: '#F59E0B' }}>top restaurants</span> serve next.
             </h1>
             <p style={{ fontSize: '18px', lineHeight: '1.6', color: '#94A3B8', maxWidth: '680px', margin: '0 auto 36px' }}>
-              Restaurants post exclusive paid tasting opportunities. Diners qualify through real dining behavior verified on Flynet. Attend, submit structured feedback, and earn \$FLY.
+              Restaurants post exclusive paid tasting opportunities. Diners qualify through real dining behavior verified on Flynet. Attend, submit structured feedback, and earn \$FLY (powered by Flynet).
             </p>
 
             <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -531,10 +542,10 @@ export default function BlackPalateApp() {
             <div style={{ backgroundColor: '#0F172A', border: '1px solid #1E293B', borderRadius: '12px', padding: '32px' }}>
               <div style={{ fontSize: '28px', marginBottom: '16px' }}>⚡</div>
               <h3 style={{ fontSize: '18px', fontWeight: '700', margin: '0 0 10px 0', color: '#F8FAFC' }}>
-                Instant \$FLY Rewards
+                \$FLY Rewards
               </h3>
               <p style={{ fontSize: '14px', lineHeight: '1.5', color: '#94A3B8', margin: 0 }}>
-                Diners earn real FLY tokens immediately upon verified attendance and structured feedback submission.
+                Diners earn \$FLY tokens upon verified attendance and structured feedback submission (settlement powered by Flynet).
               </p>
             </div>
           </section>
@@ -575,7 +586,6 @@ export default function BlackPalateApp() {
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '24px' }}>
               {campaigns.map(camp => {
-                const isFull = camp.filledSlots >= camp.maxSlots;
                 const spotsLeft = camp.maxSlots - camp.filledSlots;
 
                 return (
@@ -589,16 +599,22 @@ export default function BlackPalateApp() {
                       display: 'flex',
                       flexDirection: 'column',
                       justifyContent: 'space-between',
-                      transition: 'transform 0.15s, border-color 0.15s',
                     }}
                   >
                     <div>
                       {/* Card Header: Restaurant & Reward */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
                         <div>
-                          <span style={{ fontSize: '12px', fontWeight: '700', color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            {camp.restaurantName}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '12px', fontWeight: '700', color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              {camp.restaurantName}
+                            </span>
+                            {camp.isDemo && (
+                              <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '3px', backgroundColor: '#334155', color: '#CBD5E1', fontWeight: '700' }}>
+                                DEMO
+                              </span>
+                            )}
+                          </div>
                           <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px' }}>
                             📍 {camp.location || 'NYC'} · 🕒 {camp.timing || 'Flexible'}
                           </div>
@@ -671,9 +687,16 @@ export default function BlackPalateApp() {
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
               <div>
-                <span style={{ fontSize: '12px', fontWeight: '700', color: '#F59E0B', textTransform: 'uppercase' }}>
-                  {selectedTasting.restaurantName}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: '#F59E0B', textTransform: 'uppercase' }}>
+                    {selectedTasting.restaurantName}
+                  </span>
+                  {selectedTasting.isDemo && (
+                    <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '3px', backgroundColor: '#334155', color: '#CBD5E1', fontWeight: '700' }}>
+                      DEMO
+                    </span>
+                  )}
+                </div>
                 <h2 style={{ fontSize: '22px', fontWeight: '800', margin: '4px 0', color: '#F8FAFC' }}>
                   {selectedTasting.title}
                 </h2>
@@ -715,14 +738,11 @@ export default function BlackPalateApp() {
               </ul>
             </div>
 
-            <div style={{ marginBottom: '24px' }}>
-              <h4 style={{ fontSize: '13px', textTransform: 'uppercase', color: '#64748B', margin: '0 0 8px 0' }}>Questions You Will Answer After Tasting</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {selectedTasting.feedbackQuestions?.map((q, idx) => (
-                  <div key={q.id || idx} style={{ fontSize: '13px', color: '#94A3B8', backgroundColor: '#0B0F17', padding: '8px 12px', borderRadius: '6px' }}>
-                    {idx + 1}. {q.prompt}
-                  </div>
-                ))}
+            {/* Truthful Verification Availability Box */}
+            <div style={{ backgroundColor: '#451A03', border: '1px solid #78350F', borderRadius: '8px', padding: '14px', marginBottom: '24px', color: '#FEF3C7', fontSize: '13px' }}>
+              <strong>Flynet Status: Awaiting Admin Approval</strong>
+              <div style={{ marginTop: '4px', color: '#FDE68A', fontSize: '12px' }}>
+                Blackbird dining history verification is temporarily unavailable while Flynet access is being activated. Tasting booking will unlock upon Blackbird approval.
               </div>
             </div>
 
@@ -733,15 +753,15 @@ export default function BlackPalateApp() {
                   flex: 1,
                   padding: '12px',
                   borderRadius: '8px',
-                  backgroundColor: '#F59E0B',
-                  color: '#000',
-                  fontWeight: '800',
-                  fontSize: '14px',
-                  border: 'none',
+                  backgroundColor: '#78350F',
+                  color: '#FEF3C7',
+                  fontWeight: '700',
+                  fontSize: '13px',
+                  border: '1px solid #92400E',
                   cursor: 'pointer',
                 }}
               >
-                Join Tasting Session ({selectedTasting.rewardFly} $FLY)
+                Verification Awaiting Flynet Approval
               </button>
               <button
                 onClick={() => setSelectedTasting(null)}
@@ -776,7 +796,32 @@ export default function BlackPalateApp() {
             </p>
           </div>
 
-          {userApplications.length === 0 ? (
+          {!isAuthenticated ? (
+            <div style={{ textAlign: 'center', padding: '60px', backgroundColor: '#0F172A', borderRadius: '12px', border: '1px solid #1E293B' }}>
+              <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔒</div>
+              <h3 style={{ fontSize: '17px', fontWeight: '700', color: '#F8FAFC', margin: '0 0 8px 0' }}>
+                Blackbird Authentication Required
+              </h3>
+              <p style={{ fontSize: '14px', color: '#94A3B8', margin: '0 0 20px 0', maxWidth: '480px', marginInline: 'auto' }}>
+                Connect your Blackbird account to view your scheduled tasting reservations and submitted sensory feedback.
+              </p>
+              <a
+                href="/api/auth/login"
+                style={{
+                  display: 'inline-block',
+                  padding: '10px 20px',
+                  borderRadius: '6px',
+                  backgroundColor: '#F59E0B',
+                  color: '#000',
+                  fontWeight: '700',
+                  textDecoration: 'none',
+                  fontSize: '13px',
+                }}
+              >
+                Connect Blackbird Account
+              </a>
+            </div>
+          ) : userApplications.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px', backgroundColor: '#0F172A', borderRadius: '12px', border: '1px solid #1E293B' }}>
               <p style={{ fontSize: '15px', color: '#94A3B8', margin: '0 0 16px 0' }}>You have not joined any tasting sessions yet.</p>
               <button
@@ -835,9 +880,7 @@ export default function BlackPalateApp() {
                         </div>
                       ) : (
                         <button
-                          onClick={() => {
-                            setActiveFeedbackCampaign(camp);
-                          }}
+                          onClick={() => setActiveFeedbackCampaign(camp)}
                           style={{
                             padding: '10px 18px',
                             borderRadius: '8px',
@@ -882,7 +925,6 @@ export default function BlackPalateApp() {
             </div>
 
             <form onSubmit={handleSubmitFeedback}>
-              {/* Question: Overall Score */}
               <div style={{ marginBottom: '20px' }}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#E2E8F0', marginBottom: '6px' }}>
                   Overall Dish Evaluation (1 to 5)
@@ -900,7 +942,6 @@ export default function BlackPalateApp() {
                 </select>
               </div>
 
-              {/* Sensory Score Grid */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', color: '#94A3B8', marginBottom: '4px' }}>Flavor Balance (1-5)</label>
@@ -926,7 +967,6 @@ export default function BlackPalateApp() {
                 </div>
               </div>
 
-              {/* Dynamic Campaign Questions */}
               {activeFeedbackCampaign.feedbackQuestions?.map((q, idx) => (
                 <div key={q.id || idx} style={{ marginBottom: '16px' }}>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#E2E8F0', marginBottom: '6px' }}>
@@ -960,7 +1000,6 @@ export default function BlackPalateApp() {
                 </div>
               ))}
 
-              {/* Detailed Feedback */}
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#E2E8F0', marginBottom: '6px' }}>
                   Sensory Dynamics &amp; Texture Notes
@@ -975,7 +1014,6 @@ export default function BlackPalateApp() {
                 />
               </div>
 
-              {/* Actionable Suggestions */}
               <div style={{ marginBottom: '24px' }}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#E2E8F0', marginBottom: '6px' }}>
                   Direct Recommendations for Head Chef
@@ -1048,10 +1086,14 @@ export default function BlackPalateApp() {
               <span style={{ fontSize: '14px', fontWeight: '800', color: '#F59E0B' }}>
                 ✨ BlackPalate AI Tasting Assistant
               </span>
-              <span style={{ fontSize: '11px', color: '#64748B' }}>DeepSeek / OpenAI Powered</span>
+              {aiDraftMode && (
+                <span style={{ fontSize: '11px', color: '#FDE68A', padding: '2px 8px', borderRadius: '4px', backgroundColor: '#78350F' }}>
+                  {aiDraftMode}
+                </span>
+              )}
             </div>
             <p style={{ fontSize: '13px', color: '#94A3B8', margin: '0 0 14px 0' }}>
-              Describe what dish or concept you want to test in plain English. The AI will populate the campaign parameters and customized questions below.
+              Describe what dish or concept you want to test in plain English. The AI will formulate the campaign parameters and customized questions below.
             </p>
 
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
@@ -1300,7 +1342,14 @@ export default function BlackPalateApp() {
                         gap: '4px',
                       }}
                     >
-                      <span style={{ fontWeight: '700', fontSize: '13px' }}>{camp.dishFocus}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: '700', fontSize: '13px' }}>{camp.dishFocus}</span>
+                        {camp.isDemo && (
+                          <span style={{ fontSize: '9px', padding: '1px 4px', borderRadius: '3px', backgroundColor: '#334155', color: '#CBD5E1' }}>
+                            DEMO
+                          </span>
+                        )}
+                      </div>
                       <span style={{ fontSize: '11px', color: '#64748B' }}>
                         {camp.filledSlots}/{camp.maxSlots} seats · {camp.rewardFly} $FLY
                       </span>
@@ -1324,13 +1373,18 @@ export default function BlackPalateApp() {
                       </h3>
                       <div style={{ fontSize: '13px', color: '#94A3B8' }}>{selectedStudioCampaign.researchGoal}</div>
                     </div>
+                    {synthesisMode && (
+                      <span style={{ fontSize: '11px', color: '#FDE68A', padding: '3px 8px', borderRadius: '4px', backgroundColor: '#78350F' }}>
+                        Mode: {synthesisMode}
+                      </span>
+                    )}
                   </div>
 
                   {loadingSynthesis ? (
                     <div style={{ textAlign: 'center', padding: '40px', color: '#94A3B8' }}>Synthesizing feedback records...</div>
                   ) : studioSynthesis ? (
                     <div>
-                      {/* AI Executive Summary */}
+                      {/* Executive Summary */}
                       <div style={{ backgroundColor: '#0B0F17', borderLeft: '4px solid #F59E0B', borderRadius: '6px', padding: '16px 20px', marginBottom: '24px' }}>
                         <div style={{ fontSize: '12px', fontWeight: '700', color: '#F59E0B', textTransform: 'uppercase', marginBottom: '4px' }}>
                           Executive Consensus
@@ -1441,7 +1495,7 @@ export default function BlackPalateApp() {
           <div style={{ backgroundColor: '#451A03', border: '1px solid #78350F', borderRadius: '10px', padding: '20px', marginBottom: '24px', color: '#FDE68A' }}>
             <strong style={{ fontSize: '15px' }}>Flynet Maker Status: BLOCKED / AWAITING BLACKBIRD ADMIN APPROVAL</strong>
             <p style={{ margin: '8px 0 0 0', fontSize: '13px', lineHeight: '1.5', color: '#FEF3C7' }}>
-              The Flynet Make dashboard currently prevents application and API key minting. All core product flows (marketplace discovery, campaign creation, deterministic qualification engine, feedback storage, and AI synthesis) are operational. Live token exchange will execute immediately upon Blackbird approval.
+              The Flynet Make dashboard currently prevents application and API key minting. All core product flows (marketplace discovery, campaign creation, deterministic qualification engine, feedback storage, and AI synthesis) are operational and hardened. Live token exchange will execute immediately upon Blackbird approval.
             </p>
           </div>
 
@@ -1463,7 +1517,7 @@ export default function BlackPalateApp() {
                 <tr style={{ borderBottom: '1px solid #1E293B' }}>
                   <td style={{ padding: '12px 10px', fontWeight: '600' }}>Database Persistence</td>
                   <td style={{ padding: '12px 10px' }}><code>lib/db/repository.ts</code></td>
-                  <td style={{ padding: '12px 10px', color: '#10B981', fontWeight: '700' }}>COMPONENT PROVEN</td>
+                  <td style={{ padding: '12px 10px', color: '#10B981', fontWeight: '700' }}>COMPONENT PROVEN (Fail-Closed)</td>
                 </tr>
                 <tr style={{ borderBottom: '1px solid #1E293B' }}>
                   <td style={{ padding: '12px 10px', fontWeight: '600' }}>Qualification Engine</td>
@@ -1473,7 +1527,7 @@ export default function BlackPalateApp() {
                 <tr style={{ borderBottom: '1px solid #1E293B' }}>
                   <td style={{ padding: '12px 10px', fontWeight: '600' }}>AI Assistant &amp; Synthesis</td>
                   <td style={{ padding: '12px 10px' }}><code>lib/ai.ts</code></td>
-                  <td style={{ padding: '12px 10px', color: '#10B981', fontWeight: '700' }}>COMPONENT PROVEN</td>
+                  <td style={{ padding: '12px 10px', color: '#10B981', fontWeight: '700' }}>COMPONENT PROVEN (Transparent Mode)</td>
                 </tr>
                 <tr>
                   <td style={{ padding: '12px 10px', fontWeight: '600' }}>Flynet OAuth &amp; Reward</td>

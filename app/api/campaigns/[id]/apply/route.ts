@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { evaluateQualification, QualificationRule } from '@/lib/qualification';
-import { createFlynetMemberClient, createFlynetDiscoveryClient } from '@/lib/flynet';
+import { createFlynetMemberClient, getFlynetConfig } from '@/lib/flynet';
 
 export async function POST(
   req: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const body = await req.json().catch(() => ({}));
     const campaign = await db.getCampaignById(params.id);
 
     if (!campaign) {
@@ -22,7 +21,7 @@ export async function POST(
       );
     }
 
-    // Check for authenticated Flynet session cookie or direct body input
+    // 1. Authenticate member via HttpOnly session cookie
     const cookieHeader = req.headers.get('cookie') || '';
     const cookies = Object.fromEntries(
       cookieHeader.split(';').map(c => {
@@ -30,27 +29,46 @@ export async function POST(
         return [k, decodeURIComponent(v || '')];
       })
     );
-    const accessToken = cookies['bp_access_token'] || body.accessToken;
-    let dinerFlynetId = body.dinerFlynetId || 'diner_guest';
-    let dinerName = body.dinerName || 'Guest Diner';
-    let checkIns = body.checkIns || [];
+    const accessToken = cookies['bp_access_token'];
 
-    // If real Flynet member token is present, fetch live check-ins
-    if (accessToken) {
-      try {
-        const member = createFlynetMemberClient(accessToken);
-        const profile = await member.getProfile();
-        dinerFlynetId = profile.id;
-        dinerName = (profile as any).display_name || (profile as any).name || (profile as any).username || dinerName;
-
-        const checkInsRes = await member.listCheckIns({ page: 0, pageSize: 50 });
-        checkIns = checkInsRes.checkIns || [];
-      } catch (err) {
-        console.warn('[Apply] Flynet token evaluation skipped or expired:', err);
-      }
+    // If no active Blackbird session token exists: fail closed with truthful message
+    if (!accessToken) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: 'FLYNET_UNAVAILABLE',
+          error: 'Flynet authentication required. Please connect your Blackbird account.',
+          message: 'Blackbird dining history verification is temporarily unavailable while Flynet access is being activated.',
+        },
+        { status: 503 }
+      );
     }
 
-    // Build qualification rules for this campaign
+    let dinerFlynetId: string;
+    let dinerName: string;
+    let checkIns: any[] = [];
+
+    try {
+      const member = createFlynetMemberClient(accessToken);
+      const profile = await member.getProfile();
+      dinerFlynetId = profile.id;
+      dinerName = (profile as any).display_name || (profile as any).name || (profile as any).username || profile.id;
+
+      const checkInsRes = await member.listCheckIns({ page: 0, pageSize: 50 });
+      checkIns = checkInsRes.checkIns || [];
+    } catch (err: any) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: 'FLYNET_EVALUATION_FAILED',
+          error: 'Failed to retrieve dining history from Flynet.',
+          message: 'Blackbird dining verification is temporarily unavailable while Flynet access is being activated.',
+        },
+        { status: 503 }
+      );
+    }
+
+    // 2. Build deterministic qualification rules
     const rules: QualificationRule[] = [
       {
         type: 'MIN_TOTAL_CHECKINS',
@@ -72,23 +90,26 @@ export async function POST(
       rules.push({
         type: 'NEW_TO_RESTAURANT',
         restaurantId: campaign.restaurantId,
-        description: 'First-time tasting participant (no prior check-in at this specific restaurant)',
+        description: `First-time tasting participant (no prior check-in at ${campaign.restaurantName || 'this venue'})`,
       });
     }
 
-    // Evaluate qualification deterministically
+    // 3. Evaluate deterministic qualification rules
     const evalResult = evaluateQualification(checkIns, rules);
 
-    if (!evalResult.qualified && !body.forcePass) {
-      return NextResponse.json({
-        ok: false,
-        qualified: false,
-        reasons: evalResult.ruleEvaluations.filter(r => !r.passed).map(r => r.details),
-        evalResult,
-      }, { status: 422 });
+    if (!evalResult.qualified) {
+      return NextResponse.json(
+        {
+          ok: false,
+          qualified: false,
+          reasons: evalResult.ruleEvaluations.filter(r => !r.passed).map(r => r.details),
+          evalResult,
+        },
+        { status: 422 }
+      );
     }
 
-    // Record application in persistence
+    // 4. Record application in persistence
     const application = await db.createApplication({
       campaignId: campaign.id,
       dinerFlynetId,
@@ -115,4 +136,3 @@ export async function POST(
     );
   }
 }
-
