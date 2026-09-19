@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node lib/campaign.test.mjs && node lib/qualification.test.mjs && node lib/audit.test.mjs",
+    "test:unit": "node lib/campaign.test.mjs && node lib/qualification.test.mjs",
+    "test:audit": "node lib/audit.test.mjs",
+    "test:integration": "node lib/db.integration.test.mjs",
+    "test": "node lib/campaign.test.mjs && node lib/qualification.test.mjs && node lib/audit.test.mjs && node lib/db.integration.test.mjs",
+    "migrate": "node scripts/migrate.mjs",
     "doctor": "node scripts/doctor.mjs"
   },
   "dependencies": {

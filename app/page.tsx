@@ -88,6 +88,10 @@ export default function BlackPalateApp() {
   const [selectedTasting, setSelectedTasting] = useState<Campaign | null>(null);
   const [userApplications, setUserApplications] = useState<Application[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [sessionUser, setSessionUser] = useState<any>(null);
+  const [authRole, setAuthRole] = useState<'RESTAURANT' | 'DINER' | null>(null);
+  const [operatorWorkspaces, setOperatorWorkspaces] = useState<any[]>([]);
+  const [activeWorkspace, setActiveWorkspace] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [statusBanner, setStatusBanner] = useState<{
@@ -168,7 +172,7 @@ export default function BlackPalateApp() {
   async function loadData() {
     setLoading(true);
     try {
-      // 1. Fetch campaigns
+      // 1. Fetch campaigns from PostgreSQL
       const campRes = await fetch('/api/campaigns');
       const campData = await campRes.json();
       if (campData.ok && campData.campaigns) {
@@ -182,9 +186,22 @@ export default function BlackPalateApp() {
       const meRes = await fetch('/api/auth/me').catch(() => null);
       if (meRes && meRes.ok) {
         const meData = await meRes.json();
-        if (meData.profile) {
-          setUserProfile(meData.profile);
+        if (meData.authenticated) {
           setIsAuthenticated(true);
+          setAuthRole(meData.role);
+          setSessionUser(meData.user);
+          if (meData.role === 'RESTAURANT') {
+            setOperatorWorkspaces(meData.workspaces || []);
+            if (meData.workspaces?.length > 0) {
+              setActiveWorkspace(meData.workspaces[0]);
+            }
+          } else if (meData.role === 'DINER') {
+            setUserProfile(meData.profile);
+          }
+        } else {
+          setIsAuthenticated(false);
+          setAuthRole(null);
+          setSessionUser(null);
         }
       }
 
@@ -198,6 +215,46 @@ export default function BlackPalateApp() {
       console.error('Data load error:', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Handle Restaurant Operator Login (Google Managed Auth)
+  async function handleOperatorLogin(email = 'chef.marco@gramercy.demo', name = 'Chef Marco / Operator') {
+    try {
+      const res = await fetch('/api/auth/restaurant/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          displayName: name,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setStatusBanner({
+          type: 'success',
+          text: `Signed in as ${data.user.displayName}. Restaurant workspace active.`,
+        });
+        await loadData();
+      }
+    } catch (err: any) {
+      setStatusBanner({ type: 'warning', text: `Login failed: ${err.message}` });
+    }
+  }
+
+  // Handle Logout
+  async function handleLogout() {
+    try {
+      await fetch('/api/auth/restaurant/logout', { method: 'POST' });
+      setIsAuthenticated(false);
+      setAuthRole(null);
+      setSessionUser(null);
+      setOperatorWorkspaces([]);
+      setActiveWorkspace(null);
+      setStatusBanner({ type: 'info', text: 'Signed out successfully.' });
+      loadData();
+    } catch (err: any) {
+      console.error('Logout error:', err);
     }
   }
 
@@ -341,7 +398,17 @@ export default function BlackPalateApp() {
 
   // Handle Publishing Campaign
   async function handlePublishCampaign() {
+    if (!isAuthenticated || authRole !== 'RESTAURANT') {
+      setStatusBanner({
+        type: 'warning',
+        text: 'Restaurant operator sign-in is required to publish tasting campaigns. Please sign in above.',
+      });
+      return;
+    }
+
     try {
+      const restId = activeWorkspace?.id || 'rest_01';
+      const restName = activeWorkspace?.name || newCampaign.restaurantName;
       const res = await fetch('/api/campaigns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -350,8 +417,8 @@ export default function BlackPalateApp() {
           description: newCampaign.researchGoal,
           dishFocus: newCampaign.dishFocus,
           researchGoal: newCampaign.researchGoal,
-          restaurantId: 'rest_01',
-          restaurantName: newCampaign.restaurantName,
+          restaurantId: restId,
+          restaurantName: restName,
           restaurantCuisine: [newCampaign.cuisine],
           location: newCampaign.location,
           timing: newCampaign.timing,
@@ -374,6 +441,11 @@ export default function BlackPalateApp() {
         });
         loadData();
         setActiveNav('discover');
+      } else {
+        setStatusBanner({
+          type: 'warning',
+          text: data.message || `Publish failed: ${data.error}`,
+        });
       }
     } catch (err: any) {
       setStatusBanner({ type: 'warning', text: `Publish failed: ${err.message}` });
@@ -602,45 +674,130 @@ export default function BlackPalateApp() {
             </button>
           </nav>
 
-          {/* Account / Flynet Connection Pill */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div
-              style={{
-                padding: '6px 12px',
-                borderRadius: '20px',
-                backgroundColor: '#121212',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                fontSize: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <span
+          {/* Account / Auth Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {isAuthenticated && authRole === 'RESTAURANT' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    backgroundColor: '#181818',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <span
+                    style={{
+                      width: '7px',
+                      height: '7px',
+                      borderRadius: '50%',
+                      backgroundColor: '#10B981',
+                      boxShadow: '0 0 8px rgba(16, 185, 129, 0.5)',
+                    }}
+                  />
+                  <span>
+                    Operator:{' '}
+                    <strong style={{ color: '#F59E0B' }}>
+                      {sessionUser?.displayName || 'Chef Marco'}
+                    </strong>
+                  </span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    backgroundColor: '#181818',
+                    color: '#A8A29E',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                  }}
+                >
+                  Sign Out
+                </button>
+              </div>
+            ) : isAuthenticated && authRole === 'DINER' ? (
+              <div
                 style={{
-                  width: '7px',
-                  height: '7px',
-                  borderRadius: '50%',
-                  backgroundColor: isAuthenticated ? '#10B981' : '#F59E0B',
-                  boxShadow: isAuthenticated
-                    ? '0 0 8px rgba(16, 185, 129, 0.5)'
-                    : '0 0 8px rgba(245, 158, 11, 0.5)',
+                  padding: '6px 12px',
+                  borderRadius: '20px',
+                  backgroundColor: '#121212',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  fontSize: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
                 }}
-              />
-              {isAuthenticated ? (
+              >
+                <span
+                  style={{
+                    width: '7px',
+                    height: '7px',
+                    borderRadius: '50%',
+                    backgroundColor: '#10B981',
+                    boxShadow: '0 0 8px rgba(16, 185, 129, 0.5)',
+                  }}
+                />
                 <span>
                   Blackbird:{' '}
                   <strong style={{ color: '#F5F5F4' }}>
-                    {userProfile?.name || userProfile?.id}
+                    {sessionUser?.displayName || userProfile?.name}
                   </strong>
                 </span>
-              ) : (
-                <span title="Awaiting Blackbird admin approval on Flynet Make">
-                  Flynet:{' '}
-                  <strong style={{ color: '#FDE68A' }}>Awaiting Admin Approval</strong>
-                </span>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  onClick={() => handleOperatorLogin('chef.marco@gramercy.demo', 'Chef Marco / Operator')}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    backgroundColor: '#181818',
+                    color: '#F59E0B',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    fontWeight: '700',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Utensils size={13} />
+                  Restaurant Sign In
+                </button>
+                <div
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: '20px',
+                    backgroundColor: '#121212',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    fontSize: '11px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: '#A8A29E',
+                  }}
+                  title="Flynet Maker access awaiting Blackbird admin approval"
+                >
+                  <span
+                    style={{
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      backgroundColor: '#F59E0B',
+                    }}
+                  />
+                  <span>Flynet: Awaiting Approval</span>
+                </div>
+              </div>
+            )}
 
             <button
               onClick={() => setActiveNav('diagnostics')}

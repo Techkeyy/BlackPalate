@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { evaluateQualification, QualificationRule } from '@/lib/qualification';
-import { createFlynetMemberClient, getFlynetConfig } from '@/lib/flynet';
+import { createFlynetMemberClient } from '@/lib/flynet';
+import { resolveOrCreateFlynetDinerUser } from '@/lib/auth';
 
 export async function POST(
   req: Request,
@@ -47,6 +48,7 @@ export async function POST(
     let dinerFlynetId: string;
     let dinerName: string;
     let checkIns: any[] = [];
+    let internalUser: any;
 
     try {
       const member = createFlynetMemberClient(accessToken);
@@ -56,7 +58,13 @@ export async function POST(
 
       const checkInsRes = await member.listCheckIns({ page: 0, pageSize: 50 });
       checkIns = checkInsRes.checkIns || [];
-    } catch (err: any) {
+
+      // Resolve or create internal BlackPalate user
+      internalUser = await resolveOrCreateFlynetDinerUser({
+        id: profile.id,
+        displayName: dinerName,
+      });
+    } catch {
       return NextResponse.json(
         {
           ok: false,
@@ -109,9 +117,10 @@ export async function POST(
       );
     }
 
-    // 4. Record application in persistence
+    // 4. Record application in persistence with internal userId
     const application = await db.createApplication({
       campaignId: campaign.id,
+      userId: internalUser.id,
       dinerFlynetId,
       dinerName,
       status: 'QUALIFIED',

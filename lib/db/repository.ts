@@ -1,5 +1,7 @@
 import { neon } from '@neondatabase/serverless';
 import {
+  User,
+  RestaurantMembership,
   Restaurant,
   Campaign,
   Application,
@@ -9,51 +11,116 @@ import {
   ApplicationStatus,
 } from './types';
 
-// Explicit Seed Data for development & demo presentation
-const SEED_RESTAURANTS: Restaurant[] = [
+export function getDbClient() {
+  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (dbUrl && dbUrl.startsWith('postgres')) {
+    try {
+      return neon(dbUrl);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function checkDatabaseConfig() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+
+  if (isProduction && (!dbUrl || !dbUrl.startsWith('postgres'))) {
+    throw new Error(
+      'DATABASE_UNAVAILABLE: Production database connection string (DATABASE_URL) is required. In-memory fallback is disabled in production.'
+    );
+  }
+}
+
+// In-memory fallback ONLY for local testing / non-production environments when DATABASE_URL is unset
+let inMemoryUsers: User[] = [
   {
-    id: 'rest_01',
-    flynetId: null,
-    name: 'Via Carota / Roman Osteria',
-    cuisine: ['Italian', 'Pasta', 'Roman'],
-    neighborhood: 'West Village, NYC',
-    priceTier: 3,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'rest_02',
-    flynetId: null,
-    name: 'Kappo Wagyu Lab',
-    cuisine: ['Japanese', 'Wagyu', 'Omakase'],
-    neighborhood: 'Lower East Side, NYC',
-    priceTier: 4,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'rest_03',
-    flynetId: null,
-    name: 'Lure & Tide Raw Bar',
-    cuisine: ['Seafood', 'Mediterranean', 'Raw Bar'],
-    neighborhood: 'SoHo, NYC',
-    priceTier: 3,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'rest_04',
-    flynetId: null,
-    name: 'Nori Ramen House',
-    cuisine: ['Japanese', 'Ramen'],
-    neighborhood: 'East Village, NYC',
-    priceTier: 2,
+    id: 'usr_demo_owner',
+    displayName: 'Chef Marco / Operator',
+    email: 'operator@blackpalate.demo',
+    restaurantAuthUserId: 'auth_demo_owner',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
 ];
 
-const SEED_CAMPAIGNS: Campaign[] = [
+let inMemoryRestaurants: Restaurant[] = [
+  {
+    id: 'rest_01',
+    name: 'Via Carota / Roman Osteria',
+    cuisine: ['Italian', 'Pasta', 'Roman'],
+    neighborhood: 'West Village, NYC',
+    priceTier: 3,
+    isDemo: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'rest_02',
+    name: 'Kappo Wagyu Lab',
+    cuisine: ['Japanese', 'Wagyu', 'Omakase'],
+    neighborhood: 'Lower East Side, NYC',
+    priceTier: 4,
+    isDemo: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'rest_03',
+    name: 'Lure & Tide Raw Bar',
+    cuisine: ['Seafood', 'Mediterranean', 'Raw Bar'],
+    neighborhood: 'SoHo, NYC',
+    priceTier: 3,
+    isDemo: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'rest_04',
+    name: 'Nori Ramen House',
+    cuisine: ['Japanese', 'Ramen'],
+    neighborhood: 'East Village, NYC',
+    priceTier: 2,
+    isDemo: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+];
+
+let inMemoryMemberships: RestaurantMembership[] = [
+  {
+    id: 'memb_01',
+    userId: 'usr_demo_owner',
+    restaurantId: 'rest_01',
+    role: 'OWNER',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'memb_02',
+    userId: 'usr_demo_owner',
+    restaurantId: 'rest_02',
+    role: 'OWNER',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'memb_03',
+    userId: 'usr_demo_owner',
+    restaurantId: 'rest_03',
+    role: 'OWNER',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'memb_04',
+    userId: 'usr_demo_owner',
+    restaurantId: 'rest_04',
+    role: 'OWNER',
+    createdAt: new Date().toISOString(),
+  },
+];
+
+let inMemoryCampaigns: Campaign[] = [
   {
     id: 'demo_camp_01',
     title: 'Dry-Aged Guanciale Carbonara Benchmark',
@@ -100,134 +167,89 @@ const SEED_CAMPAIGNS: Campaign[] = [
         options: ['Definitely Yes', 'Yes, with tweaks', 'Too expensive / No'],
       },
     ],
-    createdAt: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
+    createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
   {
     id: 'demo_camp_02',
-    title: 'Spicy Miso Ramen & Charred Chashu Test',
+    title: 'A5 Miyazaki Wagyu Nigiri & Bone Marrow Tare',
     description:
-      'Testing an unreleased rich 18-hour spicy miso pork broth with hand-pulled wavy noodles and torch-finished Kurobuta pork belly.',
-    dishFocus: 'Spicy Miso Ramen with Charred Chashu',
-    researchGoal: 'Validate if frequent ramen diners consider $24 appropriate for artisan hand-crafted broth.',
-    restaurantId: 'rest_04',
-    restaurantName: 'Nori Ramen House',
-    restaurantCuisine: ['Japanese', 'Ramen'],
-    location: 'East Village, NYC',
-    timing: 'Tuesday · 7:00 PM',
-    timeCommitment: '35 minutes',
-    targetCuisines: ['Japanese', 'Ramen', 'Asian'],
-    minTotalCheckIns: 2,
-    minCuisineVisits: 1,
-    mustBeNewToVenue: false,
-    rewardFly: '500',
-    rewardFlyWei: '500000000000000000000',
-    maxSlots: 6,
-    filledSlots: 4,
-    status: 'ACTIVE',
-    isDemo: true,
-    feedbackQuestions: [
-      {
-        id: 'q1',
-        prompt: 'Rate broth viscosity and spice depth:',
-        type: 'scale',
-      },
-      {
-        id: 'q2',
-        prompt: 'Was the chashu tenderness optimal?',
-        type: 'yes_no',
-      },
-      {
-        id: 'q3',
-        prompt: 'What price point would you expect for this bowl on our regular menu?',
-        type: 'choice',
-        options: ['$18 - $20', '$21 - $23', '$24 - $26', '$27+'],
-      },
-      {
-        id: 'q4',
-        prompt: 'Notes on noodle chew and broth cling:',
-        type: 'text',
-      },
-    ],
-    createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'demo_camp_03',
-    title: 'A5 Miyazaki Katsu Sando & Smoked Ponzu Mayo',
-    description:
-      'Testing an unreleased brioche crust formulation with 60-second flash-fried A5 Wagyu striploin. Diners must have verified Japanese dining experience.',
-    dishFocus: 'A5 Miyazaki Katsu Sando',
-    researchGoal: 'Gauge willingness to pay for ultra-premium cut format.',
+      'Testing our new dry-aged A5 striploin cut with smoked bone marrow tare glaze. Looking for sushi & omakase regulars.',
+    dishFocus: 'A5 Wagyu Nigiri with Smoked Tare',
+    researchGoal: 'Assess whether the rich bone marrow tare overpowers the delicate wagyu marbling.',
     restaurantId: 'rest_02',
     restaurantName: 'Kappo Wagyu Lab',
     restaurantCuisine: ['Japanese', 'Wagyu', 'Omakase'],
     location: 'Lower East Side, NYC',
-    timing: 'Saturday · 5:30 PM',
-    timeCommitment: '40 minutes',
-    targetCuisines: ['Japanese', 'Asian'],
+    timing: 'Saturday · 8:30 PM',
+    timeCommitment: '30 minutes',
+    targetCuisines: ['Japanese', 'Wagyu'],
     minTotalCheckIns: 3,
     minCuisineVisits: 2,
     mustBeNewToVenue: false,
-    rewardFly: '75',
-    rewardFlyWei: '75000000000000000000',
-    maxSlots: 5,
-    filledSlots: 1,
+    rewardFly: '40',
+    rewardFlyWei: '40000000000000000000',
+    maxSlots: 6,
+    filledSlots: 2,
     status: 'ACTIVE',
     isDemo: true,
     feedbackQuestions: [
       {
         id: 'q1',
-        prompt: 'Rate the contrast between milk bread crunch and meat tenderness:',
+        prompt: 'Rate the balance between tare sweetness and wagyu richness:',
         type: 'scale',
       },
       {
         id: 'q2',
-        prompt: 'Did the smoked ponzu cut through the A5 marbling fat appropriately?',
-        type: 'choice',
-        options: ['Too acidic', 'Perfect balance', 'Too rich / Needed more acid'],
+        prompt: 'Was the sear temperature and fat rendering optimal?',
+        type: 'yes_no',
       },
       {
         id: 'q3',
-        prompt: 'What price point would you expect for this tasting item on a dinner menu?',
+        prompt: 'Specific feedback on wasabi heat level and rice acidity:',
         type: 'text',
       },
     ],
-    createdAt: new Date(Date.now() - 3600000 * 18).toISOString(),
+    createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
   {
-    id: 'demo_camp_04',
-    title: 'Hokkaido Scallop Crudo with Finger Lime & Yuzu Kosho',
+    id: 'demo_camp_03',
+    title: 'Charred Spanish Octopus with Smoked Paprika Romesco',
     description:
-      'Recruiting seafood and raw bar diners for first-look tasting of our summer crudo flight.',
-    dishFocus: 'Hokkaido Scallop Crudo',
-    researchGoal: 'Gather initial diner reactions on acidity levels before menu print.',
+      'Evaluating tenderization technique and char intensity on wild Spanish octopus tentacles.',
+    dishFocus: 'Charred Spanish Octopus Tentacle',
+    researchGoal: 'Collect structured feedback on chew resistance and smoke depth.',
     restaurantId: 'rest_03',
     restaurantName: 'Lure & Tide Raw Bar',
     restaurantCuisine: ['Seafood', 'Mediterranean', 'Raw Bar'],
     location: 'SoHo, NYC',
-    timing: 'Wednesday · 8:00 PM',
-    timeCommitment: '30 minutes',
-    targetCuisines: ['Seafood', 'Mediterranean', 'Japanese'],
-    minTotalCheckIns: 1,
-    minCuisineVisits: 0,
+    timing: 'Sunday · 5:00 PM',
+    timeCommitment: '45 minutes',
+    targetCuisines: ['Seafood', 'Mediterranean'],
+    minTotalCheckIns: 2,
+    minCuisineVisits: 1,
     mustBeNewToVenue: true,
-    rewardFly: '15',
-    rewardFlyWei: '15000000000000000000',
-    maxSlots: 12,
+    rewardFly: '30',
+    rewardFlyWei: '30000000000000000000',
+    maxSlots: 10,
     filledSlots: 4,
     status: 'ACTIVE',
     isDemo: true,
     feedbackQuestions: [
       {
         id: 'q1',
-        prompt: 'Rate scallop sweetness and knife cut texture:',
+        prompt: 'Rate the tenderness vs chew texture of the octopus:',
         type: 'scale',
       },
       {
         id: 'q2',
-        prompt: 'Flavor profile notes on yuzu kosho heat level:',
+        prompt: 'Was the romesco acidity sufficient to balance the char?',
+        type: 'yes_no',
+      },
+      {
+        id: 'q3',
+        prompt: 'General critique for the head chef:',
         type: 'text',
       },
     ],
@@ -236,49 +258,324 @@ const SEED_CAMPAIGNS: Campaign[] = [
   },
 ];
 
-// In-memory state for explicit test & dev memory mode
-let inMemoryRestaurants: Restaurant[] = [...SEED_RESTAURANTS];
-let inMemoryCampaigns: Campaign[] = [...SEED_CAMPAIGNS];
 let inMemoryApplications: Application[] = [];
 let inMemoryFeedbacks: FeedbackSubmission[] = [];
 let inMemoryReceipts: RewardReceipt[] = [];
 let inMemorySynthesis: SynthesisReport[] = [];
 
-export function getDbClient() {
-  const dbUrl = process.env.DATABASE_URL;
-  if (dbUrl && dbUrl.startsWith('postgres')) {
-    try {
-      return neon(dbUrl);
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-function checkDatabaseConfig() {
-  const isProduction = process.env.NODE_ENV === 'production';
-  const dbUrl = process.env.DATABASE_URL;
-
-  if (isProduction && (!dbUrl || !dbUrl.startsWith('postgres'))) {
-    throw new Error(
-      'DATABASE_UNAVAILABLE: Production database connection string (DATABASE_URL) is required. In-memory fallback is disabled in production.'
-    );
-  }
-}
-
 export const db = {
-  async getCampaigns(): Promise<Campaign[]> {
+  // ==========================================
+  // USERS & ACCOUNT SYSTEM
+  // ==========================================
+
+  async getUserById(id: string): Promise<User | null> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = await sql`SELECT * FROM users WHERE id = ${id} LIMIT 1`;
+        if (rows && rows.length > 0) {
+          const r = rows[0];
+          return {
+            id: r.id,
+            displayName: r.display_name,
+            email: r.email,
+            flynetUserId: r.flynet_user_id,
+            restaurantAuthUserId: r.restaurant_auth_user_id,
+            avatarUrl: r.avatar_url,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
+          };
+        }
+        return null;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
+    return inMemoryUsers.find(u => u.id === id) || null;
+  },
+
+  async getUserByFlynetId(flynetUserId: string): Promise<User | null> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = await sql`SELECT * FROM users WHERE flynet_user_id = ${flynetUserId} LIMIT 1`;
+        if (rows && rows.length > 0) {
+          const r = rows[0];
+          return {
+            id: r.id,
+            displayName: r.display_name,
+            email: r.email,
+            flynetUserId: r.flynet_user_id,
+            restaurantAuthUserId: r.restaurant_auth_user_id,
+            avatarUrl: r.avatar_url,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
+          };
+        }
+        return null;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
+    return inMemoryUsers.find(u => u.flynetUserId === flynetUserId) || null;
+  },
+
+  async getUserByRestaurantAuthId(restaurantAuthUserId: string): Promise<User | null> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = await sql`SELECT * FROM users WHERE restaurant_auth_user_id = ${restaurantAuthUserId} LIMIT 1`;
+        if (rows && rows.length > 0) {
+          const r = rows[0];
+          return {
+            id: r.id,
+            displayName: r.display_name,
+            email: r.email,
+            flynetUserId: r.flynet_user_id,
+            restaurantAuthUserId: r.restaurant_auth_user_id,
+            avatarUrl: r.avatar_url,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
+          };
+        }
+        return null;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
+    return inMemoryUsers.find(u => u.restaurantAuthUserId === restaurantAuthUserId) || null;
+  },
+
+  async createUser(userData: Omit<User, 'createdAt' | 'updatedAt'>): Promise<User> {
+    checkDatabaseConfig();
+    const newUser: User = {
+      ...userData,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        await sql`
+          INSERT INTO users (id, display_name, email, flynet_user_id, restaurant_auth_user_id, avatar_url)
+          VALUES (${newUser.id}, ${newUser.displayName}, ${newUser.email || null}, 
+                  ${newUser.flynetUserId || null}, ${newUser.restaurantAuthUserId || null}, ${newUser.avatarUrl || null})
+        `;
+        return newUser;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database insert failed: ${err.message}`);
+        }
+      }
+    }
+
+    inMemoryUsers.push(newUser);
+    return newUser;
+  },
+
+  async linkFlynetUser(userId: string, flynetUserId: string): Promise<User | null> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        await sql`
+          UPDATE users 
+          SET flynet_user_id = ${flynetUserId}, updated_at = NOW() 
+          WHERE id = ${userId}
+        `;
+        return this.getUserById(userId);
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database update failed: ${err.message}`);
+        }
+      }
+    }
+
+    const u = inMemoryUsers.find(user => user.id === userId);
+    if (u) {
+      u.flynetUserId = flynetUserId;
+      u.updatedAt = new Date().toISOString();
+      return u;
+    }
+    return null;
+  },
+
+  // ==========================================
+  // RESTAURANTS & WORKSPACE MEMBERSHIPS
+  // ==========================================
+
+  async getRestaurants(): Promise<Restaurant[]> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = await sql`SELECT * FROM restaurants ORDER BY name ASC`;
+        return rows.map((r: any) => ({
+          id: r.id,
+          flynetId: r.flynet_restaurant_id,
+          name: r.name,
+          cuisine: r.cuisine || [],
+          neighborhood: r.neighborhood,
+          priceTier: r.price_tier,
+          isDemo: r.is_demo ?? false,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        }));
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
+    return inMemoryRestaurants;
+  },
+
+  async getRestaurantById(id: string): Promise<Restaurant | null> {
+    const rests = await this.getRestaurants();
+    return rests.find(r => r.id === id) || null;
+  },
+
+  async createRestaurant(restData: Omit<Restaurant, 'createdAt' | 'updatedAt'>): Promise<Restaurant> {
+    checkDatabaseConfig();
+    const newRest: Restaurant = {
+      ...restData,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        await sql`
+          INSERT INTO restaurants (id, flynet_restaurant_id, name, cuisine, neighborhood, price_tier, is_demo)
+          VALUES (${newRest.id}, ${newRest.flynetId || null}, ${newRest.name}, 
+                  ${newRest.cuisine}, ${newRest.neighborhood || null}, ${newRest.priceTier || 2}, ${newRest.isDemo ?? false})
+        `;
+        return newRest;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database insert failed: ${err.message}`);
+        }
+      }
+    }
+
+    inMemoryRestaurants.push(newRest);
+    return newRest;
+  },
+
+  async getMembershipsByUserId(userId: string): Promise<RestaurantMembership[]> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = await sql`SELECT * FROM restaurant_memberships WHERE user_id = ${userId}`;
+        return rows.map((r: any) => ({
+          id: r.id,
+          userId: r.user_id,
+          restaurantId: r.restaurant_id,
+          role: r.role,
+          createdAt: r.created_at,
+        }));
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
+    return inMemoryMemberships.filter(m => m.userId === userId);
+  },
+
+  async getMembership(userId: string, restaurantId: string): Promise<RestaurantMembership | null> {
     checkDatabaseConfig();
     const sql = getDbClient();
     if (sql) {
       try {
         const rows = await sql`
-          SELECT c.*, r.name as "restaurantName", r.cuisine as "restaurantCuisine", r.neighborhood as "restaurantNeighborhood"
-          FROM campaigns c
-          LEFT JOIN restaurants r ON c.restaurant_id = r.id
-          ORDER BY c.created_at DESC
+          SELECT * FROM restaurant_memberships 
+          WHERE user_id = ${userId} AND restaurant_id = ${restaurantId} 
+          LIMIT 1
         `;
+        if (rows && rows.length > 0) {
+          const r = rows[0];
+          return {
+            id: r.id,
+            userId: r.user_id,
+            restaurantId: r.restaurant_id,
+            role: r.role,
+            createdAt: r.created_at,
+          };
+        }
+        return null;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
+    return inMemoryMemberships.find(m => m.userId === userId && m.restaurantId === restaurantId) || null;
+  },
+
+  async createMembership(membData: Omit<RestaurantMembership, 'id' | 'createdAt'>): Promise<RestaurantMembership> {
+    checkDatabaseConfig();
+    const newMemb: RestaurantMembership = {
+      ...membData,
+      id: `memb_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      createdAt: new Date().toISOString(),
+    };
+
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        await sql`
+          INSERT INTO restaurant_memberships (id, user_id, restaurant_id, role)
+          VALUES (${newMemb.id}, ${newMemb.userId}, ${newMemb.restaurantId}, ${newMemb.role})
+          ON CONFLICT (user_id, restaurant_id) DO NOTHING
+        `;
+        return newMemb;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database insert failed: ${err.message}`);
+        }
+      }
+    }
+
+    inMemoryMemberships.push(newMemb);
+    return newMemb;
+  },
+
+  // ==========================================
+  // CAMPAIGNS
+  // ==========================================
+
+  async getCampaigns(restaurantId?: string): Promise<Campaign[]> {
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = restaurantId
+          ? await sql`
+              SELECT c.*, r.name as "restaurantName", r.cuisine as "restaurantCuisine", r.neighborhood as "restaurantNeighborhood"
+              FROM campaigns c
+              LEFT JOIN restaurants r ON c.restaurant_id = r.id
+              WHERE c.restaurant_id = ${restaurantId}
+              ORDER BY c.created_at DESC
+            `
+          : await sql`
+              SELECT c.*, r.name as "restaurantName", r.cuisine as "restaurantCuisine", r.neighborhood as "restaurantNeighborhood"
+              FROM campaigns c
+              LEFT JOIN restaurants r ON c.restaurant_id = r.id
+              ORDER BY c.created_at DESC
+            `;
         if (rows) {
           return rows.map((r: any) => ({
             id: r.id,
@@ -315,6 +612,9 @@ export const db = {
         }
       }
     }
+    if (restaurantId) {
+      return inMemoryCampaigns.filter(c => c.restaurantId === restaurantId);
+    }
     return inMemoryCampaigns;
   },
 
@@ -340,13 +640,13 @@ export const db = {
         await sql`
           INSERT INTO campaigns (
             id, title, description, dish_focus, research_goal, restaurant_id, target_cuisines,
-            location, timing, time_commitment, min_total_check_ins, min_cuisine_visits, must_be_new_to_venue,
+            location, timing, time_commitment, min_total_check_ins, min_distinct_venues, min_cuisine_visits, must_be_new_to_venue,
             reward_fly, reward_fly_wei, max_slots, filled_slots, status, is_demo, creator_key, feedback_questions
           ) VALUES (
             ${newCampaign.id}, ${newCampaign.title}, ${newCampaign.description}, ${newCampaign.dishFocus},
             ${newCampaign.researchGoal || null}, ${newCampaign.restaurantId}, ${newCampaign.targetCuisines},
             ${newCampaign.location || 'NYC'}, ${newCampaign.timing || 'Flexible'}, ${newCampaign.timeCommitment || '45 minutes'},
-            ${newCampaign.minTotalCheckIns}, ${newCampaign.minCuisineVisits}, ${newCampaign.mustBeNewToVenue},
+            ${newCampaign.minTotalCheckIns}, ${newCampaign.minDistinctVenues || 0}, ${newCampaign.minCuisineVisits}, ${newCampaign.mustBeNewToVenue},
             ${newCampaign.rewardFly}, ${newCampaign.rewardFlyWei || null}, ${newCampaign.maxSlots},
             ${newCampaign.filledSlots}, ${newCampaign.status}, ${newCampaign.isDemo ?? false},
             ${newCampaign.creatorKey || null}, ${JSON.stringify(newCampaign.feedbackQuestions)}
@@ -364,6 +664,10 @@ export const db = {
     return newCampaign;
   },
 
+  // ==========================================
+  // APPLICATIONS (USER-CENTRIC)
+  // ==========================================
+
   async getApplications(campaignId?: string): Promise<Application[]> {
     checkDatabaseConfig();
     const sql = getDbClient();
@@ -375,6 +679,7 @@ export const db = {
         return rows.map((r: any) => ({
           id: r.id,
           campaignId: r.campaign_id,
+          userId: r.user_id,
           dinerFlynetId: r.diner_flynet_id,
           dinerName: r.diner_name,
           dinerAvatar: r.diner_avatar,
@@ -406,6 +711,7 @@ export const db = {
           return {
             id: r.id,
             campaignId: r.campaign_id,
+            userId: r.user_id,
             dinerFlynetId: r.diner_flynet_id,
             dinerName: r.diner_name,
             dinerAvatar: r.diner_avatar,
@@ -425,9 +731,9 @@ export const db = {
     return inMemoryApplications.find(a => a.id === id) || null;
   },
 
-  async getUserApplications(dinerFlynetId: string): Promise<Array<Application & { campaign?: Campaign }>> {
+  async getUserApplications(userId: string): Promise<Array<Application & { campaign?: Campaign }>> {
     checkDatabaseConfig();
-    if (!dinerFlynetId) return [];
+    if (!userId) return [];
 
     const sql = getDbClient();
     if (sql) {
@@ -438,12 +744,13 @@ export const db = {
           FROM applications a
           JOIN campaigns c ON a.campaign_id = c.id
           LEFT JOIN restaurants r ON c.restaurant_id = r.id
-          WHERE a.diner_flynet_id = ${dinerFlynetId}
+          WHERE a.user_id = ${userId}
           ORDER BY a.created_at DESC
         `;
         return rows.map((r: any) => ({
           id: r.id,
           campaignId: r.campaign_id,
+          userId: r.user_id,
           dinerFlynetId: r.diner_flynet_id,
           dinerName: r.diner_name,
           dinerAvatar: r.diner_avatar,
@@ -468,7 +775,7 @@ export const db = {
       }
     }
 
-    const apps = inMemoryApplications.filter(a => a.dinerFlynetId === dinerFlynetId);
+    const apps = inMemoryApplications.filter(a => a.userId === userId);
     const campaigns = await this.getCampaigns();
     return apps.map(app => ({
       ...app,
@@ -476,14 +783,14 @@ export const db = {
     }));
   },
 
-  async getApplication(campaignId: string, dinerFlynetId: string): Promise<Application | null> {
+  async getApplication(campaignId: string, userId: string): Promise<Application | null> {
     checkDatabaseConfig();
     const sql = getDbClient();
     if (sql) {
       try {
         const rows = await sql`
           SELECT * FROM applications
-          WHERE campaign_id = ${campaignId} AND diner_flynet_id = ${dinerFlynetId}
+          WHERE campaign_id = ${campaignId} AND user_id = ${userId}
           LIMIT 1
         `;
         if (rows && rows.length > 0) {
@@ -491,6 +798,7 @@ export const db = {
           return {
             id: r.id,
             campaignId: r.campaign_id,
+            userId: r.user_id,
             dinerFlynetId: r.diner_flynet_id,
             dinerName: r.diner_name,
             dinerAvatar: r.diner_avatar,
@@ -509,17 +817,17 @@ export const db = {
     }
     return (
       inMemoryApplications.find(
-        a => a.campaignId === campaignId && a.dinerFlynetId === dinerFlynetId
+        a => a.campaignId === campaignId && a.userId === userId
       ) || null
     );
   },
 
   async createApplication(appData: Omit<Application, 'id' | 'createdAt' | 'updatedAt'>): Promise<Application> {
     checkDatabaseConfig();
-    const existing = await this.getApplication(appData.campaignId, appData.dinerFlynetId);
+    const existing = await this.getApplication(appData.campaignId, appData.userId);
     if (existing) return existing;
 
-    const newId = `app_${Date.now()}`;
+    const newId = `app_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newApp: Application = {
       ...appData,
       id: newId,
@@ -531,9 +839,10 @@ export const db = {
     if (sql) {
       try {
         await sql`
-          INSERT INTO applications (id, campaign_id, diner_flynet_id, diner_name, diner_avatar, qualification_proof, status)
-          VALUES (${newApp.id}, ${newApp.campaignId}, ${newApp.dinerFlynetId}, ${newApp.dinerName || null},
-                  ${newApp.dinerAvatar || null}, ${JSON.stringify(newApp.qualificationProof || null)}, ${newApp.status})
+          INSERT INTO applications (id, campaign_id, user_id, diner_flynet_id, diner_name, diner_avatar, qualification_proof, status)
+          VALUES (${newApp.id}, ${newApp.campaignId}, ${newApp.userId}, ${newApp.dinerFlynetId || null}, 
+                  ${newApp.dinerName || null}, ${newApp.dinerAvatar || null}, 
+                  ${JSON.stringify(newApp.qualificationProof || null)}, ${newApp.status})
         `;
         await sql`
           UPDATE campaigns SET filled_slots = filled_slots + 1 WHERE id = ${newApp.campaignId}
@@ -577,6 +886,10 @@ export const db = {
     return null;
   },
 
+  // ==========================================
+  // FEEDBACK
+  // ==========================================
+
   async createFeedback(feedback: Omit<FeedbackSubmission, 'id' | 'submittedAt'>): Promise<FeedbackSubmission> {
     checkDatabaseConfig();
     const sql = getDbClient();
@@ -594,8 +907,8 @@ export const db = {
 
         const newId = `fb_${Date.now()}`;
         await sql`
-          INSERT INTO feedback_submissions (id, application_id, campaign_id, diner_flynet_id, overall_score, ratings, answers, dish_feedback, suggestions)
-          VALUES (${newId}, ${feedback.applicationId}, ${feedback.campaignId}, ${feedback.dinerFlynetId}, ${feedback.overallScore},
+          INSERT INTO feedback_submissions (id, application_id, campaign_id, user_id, diner_flynet_id, overall_score, ratings, answers, dish_feedback, suggestions)
+          VALUES (${newId}, ${feedback.applicationId}, ${feedback.campaignId}, ${feedback.userId}, ${feedback.dinerFlynetId || null}, ${feedback.overallScore},
                   ${JSON.stringify(feedback.ratings)}, ${JSON.stringify(feedback.answers)}, ${feedback.dishFeedback}, ${feedback.suggestions || null})
         `;
         await sql`UPDATE applications SET status = 'SUBMITTED', updated_at = NOW() WHERE id = ${feedback.applicationId}`;
@@ -636,6 +949,7 @@ export const db = {
           id: r.id,
           applicationId: r.application_id,
           campaignId: r.campaign_id,
+          userId: r.user_id,
           dinerFlynetId: r.diner_flynet_id,
           overallScore: r.overall_score,
           ratings: r.ratings,
@@ -653,6 +967,10 @@ export const db = {
     return inMemoryFeedbacks.filter(f => f.campaignId === campaignId);
   },
 
+  // ==========================================
+  // REWARDS
+  // ==========================================
+
   async createRewardReceipt(receipt: Omit<RewardReceipt, 'id'>): Promise<RewardReceipt> {
     checkDatabaseConfig();
     const sql = getDbClient();
@@ -660,8 +978,9 @@ export const db = {
       try {
         const newId = `rcpt_${Date.now()}`;
         await sql`
-          INSERT INTO reward_receipts (id, application_id, campaign_id, diner_flynet_id, amount_fly, amount_fly_wei, tx_hash, idempotency_key, status, error)
-          VALUES (${newId}, ${receipt.applicationId}, ${receipt.campaignId}, ${receipt.dinerFlynetId}, ${receipt.amountFly}, ${receipt.amountFlyWei},
+          INSERT INTO reward_receipts (id, application_id, campaign_id, user_id, diner_flynet_id, amount_fly, amount_fly_wei, tx_hash, idempotency_key, status, error)
+          VALUES (${newId}, ${receipt.applicationId}, ${receipt.campaignId}, ${receipt.userId}, ${receipt.dinerFlynetId || null}, 
+                  ${receipt.amountFly}, ${receipt.amountFlyWei},
                   ${receipt.txHash || null}, ${receipt.idempotencyKey}, ${receipt.status}, ${receipt.error || null})
           ON CONFLICT (idempotency_key) DO UPDATE SET status = EXCLUDED.status, error = EXCLUDED.error
         `;
@@ -699,6 +1018,7 @@ export const db = {
           id: r.id,
           applicationId: r.application_id,
           campaignId: r.campaign_id,
+          userId: r.user_id,
           dinerFlynetId: r.diner_flynet_id,
           amountFly: r.amount_fly,
           amountFlyWei: r.amount_fly_wei,
@@ -720,9 +1040,9 @@ export const db = {
     return inMemoryReceipts;
   },
 
-  async getRestaurants(): Promise<Restaurant[]> {
-    return SEED_RESTAURANTS;
-  },
+  // ==========================================
+  // SYNTHESIS REPORTS
+  // ==========================================
 
   async saveSynthesis(report: Omit<SynthesisReport, 'id' | 'generatedAt'>): Promise<SynthesisReport> {
     checkDatabaseConfig();

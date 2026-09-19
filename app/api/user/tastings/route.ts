@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { createFlynetMemberClient } from '@/lib/flynet';
+import { verifyOperatorSession, resolveOrCreateFlynetDinerUser } from '@/lib/auth';
 
 export async function GET(req: Request) {
   try {
@@ -12,9 +13,31 @@ export async function GET(req: Request) {
       })
     );
     const accessToken = cookies['bp_access_token'];
+    const operatorToken = cookies['bp_operator_token'];
+
+    let userId: string | null = null;
+
+    if (accessToken) {
+      try {
+        const member = createFlynetMemberClient(accessToken);
+        const profile = await member.getProfile();
+        const user = await resolveOrCreateFlynetDinerUser({
+          id: profile.id,
+          displayName: (profile as any).display_name || (profile as any).name,
+        });
+        userId = user.id;
+      } catch {
+        userId = null;
+      }
+    } else if (operatorToken) {
+      const operatorPayload = verifyOperatorSession(operatorToken);
+      if (operatorPayload) {
+        userId = operatorPayload.userId;
+      }
+    }
 
     // Unauthenticated state: Return empty state safely without exposing any other user's records
-    if (!accessToken) {
+    if (!userId) {
       return NextResponse.json({
         ok: true,
         authenticated: false,
@@ -27,25 +50,7 @@ export async function GET(req: Request) {
       });
     }
 
-    let dinerFlynetId: string;
-    try {
-      const member = createFlynetMemberClient(accessToken);
-      const profile = await member.getProfile();
-      dinerFlynetId = profile.id;
-    } catch {
-      return NextResponse.json({
-        ok: true,
-        authenticated: false,
-        tastings: {
-          upcoming: [],
-          needsAction: [],
-          completed: [],
-          all: [],
-        },
-      });
-    }
-
-    const userApps = await db.getUserApplications(dinerFlynetId);
+    const userApps = await db.getUserApplications(userId);
 
     const upcoming = userApps.filter(
       a => a.status === 'QUALIFIED' || a.status === 'JOINED' || a.status === 'ATTENDANCE_PENDING'

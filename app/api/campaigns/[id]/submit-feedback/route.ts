@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { createFlynetDiscoveryClient, createFlynetMemberClient } from '@/lib/flynet';
+import { resolveOrCreateFlynetDinerUser } from '@/lib/auth';
 
 export async function POST(
   req: Request,
@@ -34,10 +35,15 @@ export async function POST(
     }
 
     let authenticatedDinerId: string;
+    let internalUser: any;
     try {
       const member = createFlynetMemberClient(accessToken);
       const profile = await member.getProfile();
       authenticatedDinerId = profile.id;
+      internalUser = await resolveOrCreateFlynetDinerUser({
+        id: profile.id,
+        displayName: (profile as any).display_name || (profile as any).name,
+      });
     } catch {
       return NextResponse.json(
         { ok: false, error: 'INVALID_SESSION', message: 'Active Blackbird session expired or invalid.' },
@@ -60,7 +66,7 @@ export async function POST(
       );
     }
 
-    if (application.dinerFlynetId !== authenticatedDinerId) {
+    if (application.userId !== internalUser.id && application.dinerFlynetId !== authenticatedDinerId) {
       return NextResponse.json(
         { ok: false, error: 'FORBIDDEN', message: 'You cannot submit feedback for another diner.' },
         { status: 403 }
@@ -75,7 +81,6 @@ export async function POST(
     }
 
     // 4. Verify application state allows feedback submission
-    // Must be ATTENDANCE_VERIFIED (or SUBMITTED if re-saving)
     if (application.status !== 'ATTENDANCE_VERIFIED' && application.status !== 'SUBMITTED') {
       return NextResponse.json(
         {
@@ -87,10 +92,11 @@ export async function POST(
       );
     }
 
-    // 5. Record structured sensory feedback
+    // 5. Record structured sensory feedback with internal userId
     const feedback = await db.createFeedback({
       applicationId: application.id,
       campaignId: params.id,
+      userId: internalUser.id,
       dinerFlynetId: authenticatedDinerId,
       overallScore: Number(body.overallScore),
       ratings: body.ratings || { flavor: 5, presentation: 5, value: 4, portion: 4 },
@@ -136,6 +142,7 @@ export async function POST(
     const receipt = await db.createRewardReceipt({
       applicationId: application.id,
       campaignId: params.id,
+      userId: internalUser.id,
       dinerFlynetId: authenticatedDinerId,
       amountFly,
       amountFlyWei,

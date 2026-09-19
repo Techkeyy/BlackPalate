@@ -1,3 +1,24 @@
+export interface User {
+  id: string;
+  displayName: string;
+  email?: string | null;
+  flynetUserId?: string | null;
+  restaurantAuthUserId?: string | null;
+  avatarUrl?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type RestaurantRole = 'OWNER' | 'MANAGER';
+
+export interface RestaurantMembership {
+  id: string;
+  userId: string;
+  restaurantId: string;
+  role: RestaurantRole;
+  createdAt: string;
+}
+
 export interface Restaurant {
   id: string;
   flynetId?: string | null;
@@ -5,6 +26,7 @@ export interface Restaurant {
   cuisine: string[];
   neighborhood?: string | null;
   priceTier?: number | null;
+  isDemo?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -28,15 +50,15 @@ export interface Campaign {
   restaurantName?: string;
   restaurantCuisine?: string[];
   location?: string;
-  timing?: string; // e.g. "Tuesday · 7:00 PM" or "Flexible this week"
-  timeCommitment?: string; // e.g. "45 minutes"
+  timing?: string;
+  timeCommitment?: string;
   targetCuisines: string[];
   minTotalCheckIns: number;
   minDistinctVenues?: number;
   minCuisineVisits: number;
   mustBeNewToVenue: boolean;
-  rewardFly: string; // whole FLY string e.g. "500" or "25"
-  rewardFlyWei?: string | null; // 18 decimals e.g. "25000000000000000000"
+  rewardFly: string;
+  rewardFlyWei?: string | null;
   maxSlots: number;
   filledSlots: number;
   status: 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'COMPLETED';
@@ -48,8 +70,10 @@ export interface Campaign {
 }
 
 export type ApplicationStatus =
+  | 'APPLIED'
   | 'QUALIFIED'
   | 'JOINED'
+  | 'CONFIRMED'
   | 'ATTENDANCE_PENDING'
   | 'ATTENDANCE_VERIFIED'
   | 'SUBMITTED'
@@ -60,7 +84,8 @@ export type ApplicationStatus =
 export interface Application {
   id: string;
   campaignId: string;
-  dinerFlynetId: string;
+  userId: string; // Internal BlackPalate User ID
+  dinerFlynetId?: string | null; // Optional external Flynet identity
   dinerName?: string | null;
   dinerAvatar?: string | null;
   qualificationProof?: {
@@ -79,8 +104,9 @@ export interface FeedbackSubmission {
   id: string;
   applicationId: string;
   campaignId: string;
-  dinerFlynetId: string;
-  overallScore: number; // 1 to 5
+  userId: string;
+  dinerFlynetId?: string | null;
+  overallScore: number;
   ratings: {
     flavor: number;
     presentation: number;
@@ -97,7 +123,8 @@ export interface RewardReceipt {
   id: string;
   applicationId: string;
   campaignId: string;
-  dinerFlynetId: string;
+  userId: string;
+  dinerFlynetId?: string | null;
   amountFly: string;
   amountFlyWei: string;
   txHash?: string | null;
