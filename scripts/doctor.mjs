@@ -4,6 +4,15 @@
  */
 
 import https from 'https';
+import fs from 'node:fs';
+import path from 'node:path';
+import dotenv from 'dotenv';
+
+// Load .env.local so presence checks reflect the real local configuration
+const envPath = path.resolve(process.cwd(), '.env.local');
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+}
 
 console.log('====================================================');
 console.log('           BLACKPALATE DOCTOR CHECK                 ');
