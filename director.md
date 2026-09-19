@@ -79,7 +79,8 @@ All credential-independent flows, full-dark visual system, reactive motion, and 
 - **Automated Test Suites**:
   - `node lib/campaign.test.mjs` PASS (10/10 core product, lifecycle, capacity, and duplicate prevention tests).
   - `node lib/qualification.test.mjs` PASS (5/5 deterministic qualification engine test cases).
-  - **Total Tests**: 15/15 PASS.
+  - `node lib/audit.test.mjs` PASS (11/11 security audit tests: IDOR isolation, duplicate join, duplicate feedback, capacity race, reward idempotency, production DB fail-closed, AI transparency, zero emoji).
+  - **Total Tests**: 26/26 PASS (`npm test`).
 - **Doctor Script**: `npm run doctor` PASS.
 - **Secret Guardrail**: `ACTIVE` (`.claude/settings.json`).
 
