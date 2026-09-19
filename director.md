@@ -18,39 +18,39 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 ---
 
 ## Current Status
-**DIRECTIVE 002D COMPLETE — REAL NEON POSTGRESQL PROVISIONED, USER ACCOUNT MODEL & RESTAURANT WORKSPACE AUTHORIZATION OPERATIONAL**
+**DIRECTIVE 002E COMPLETE — FAKE RESTAURANT LOGIN PURGED, OFFICIAL MANAGED NEON AUTH INSTALLED, SEPARATE WORKSPACE MODEL OPERATIONAL**
 
-- **Database**: Official Neon PostgreSQL resource (`neon-beige-forest`) provisioned via Vercel Marketplace integration and active across Production, Preview, and Development.
-- **Persistence Architecture**: 100% durable PostgreSQL storage using `@neondatabase/serverless` (zero in-memory fallback in production).
-- **Flynet Maker Status**: **BLOCKED / AWAITING BLACKBIRD ADMIN APPROVAL**. All Flynet dining history evaluations fail closed cleanly until Blackbird admin grants access.
+- **Managed Authentication**: Official Neon Auth (`@neondatabase/auth` + Better Auth) mounted at `/api/auth/neon/[...path]`.
+- **Security Audit**: All fake custom login routes (`POST /api/auth/restaurant/login`, `logout`), fake synthesized `auth_google_*` IDs, custom HMAC crypto, and fallback secrets completely removed.
+- **Identity Isolation**: Internal `User` model maps real Neon Auth identity (`restaurantAuthUserId`) independently from Flynet diner identity (`flynetUserId`). Accounts sharing an email string are never auto-merged.
+- **Explicit Workspace Ownership**: Logging in no longer synthesizes a fake restaurant. Restaurant creation is an explicit authenticated action (`POST /api/restaurants`) granting `OWNER` membership.
+- **Database**: Official Neon PostgreSQL resource (`neon-beige-forest`) active across Production, Preview, and Local.
+- **Flynet Maker Status**: **BLOCKED / AWAITING BLACKBIRD ADMIN APPROVAL**. Diner Flynet OAuth stays fail-closed.
 
 ---
 
-## Directive 002D System State Summary
+## Directive 002E System State Summary
 
-### 1. Real Hosted Database (Neon / Vercel Integration)
-- **Resource**: `neon-beige-forest` (`store_URzvBNEqcn19Rnbh`) installed via official Vercel integration CLI.
-- **Environment**: Automatically provisions and encrypts `DATABASE_URL`, `POSTGRES_URL`, `NEON_PROJECT_ID`, and `NEON_AUTH_BASE_URL` in Vercel production.
-- **Fail-Closed Guard**: `checkDatabaseConfig` strictly asserts `DATABASE_URL` presence in production; in-memory fallback is completely disabled.
+### 1. Real Managed Auth (Official Neon Auth)
+- Installed and configured `@neondatabase/auth` (0.5.0-beta) and `better-auth`.
+- Official server handler mounted at `app/api/auth/neon/[...path]/route.ts`.
+- `NEON_AUTH_COOKIE_SECRET` provisioned and encrypted across Vercel production, preview, and local `.env.local`.
+- Zero client-supplied identity parameters trusted: operator identity resolved purely from `neonAuth.getSession(req)`.
 
-### 2. Locked BlackPalate Account & Ownership Architecture
-- **Internal User Model (`users`)**:
-  - Central entity: `id`, `displayName`, `email`, `avatarUrl`, `flynetUserId` (nullable UNIQUE), `restaurantAuthUserId` (nullable UNIQUE).
-  - Explicit linking model: External Flynet OAuth identity and Restaurant managed auth identities map directly to internal `User` records.
-- **Restaurant Workspace Ownership (`restaurant_memberships`)**:
-  - Relational mapping: `(userId, restaurantId, role: OWNER | MANAGER)`.
-  - Campaign authorization: Server-side validation on `POST /api/campaigns` requires authenticated operator membership in `campaign.restaurantId`.
-- **User-Centric Application Ownership (`applications`)**:
-  - Ownership key: `userId` (references internal `users(id)`).
-  - External Flynet identity attached separately in `qualification_proof` and `dinerFlynetId`.
-- **Relational Integrity**:
-  - `feedback_submissions` and `reward_receipts` link directly to `application_id` and `user_id`.
-  - Deterministic idempotency keys: `blackpalate:reward:<applicationId>`.
+### 2. Workspace Ownership & Campaign Authorization
+- **Explicit Restaurant Workspace Creation (`POST /api/restaurants`)**:
+  - Requires valid Neon Auth operator session.
+  - Inserts restaurant entity into Neon PostgreSQL.
+  - Creates `RestaurantMembership(userId, restaurantId, role: 'OWNER')`.
+- **Campaign Mutation Guard (`POST /api/campaigns`)**:
+  - Enforces `getAuthenticatedOperator(req)` session.
+  - Enforces `db.getMembership(operator.id, restaurantId)` membership check.
+  - Returns `401 UNAUTHORIZED` if unauthenticated and `403 FORBIDDEN_WORKSPACE` if operator lacks membership in the target venue.
 
-### 3. Authentication & Session Management
-- **Diner Session**: HttpOnly `bp_access_token` session cookie via Flynet PKCE OAuth callback; resolves/upserts internal BlackPalate `User`.
-- **Restaurant Operator Session**: HttpOnly `bp_operator_token` signed JWT session cookie; resolves/upserts operator `User` and establishes workspace context.
-- **Unified `/api/auth/me`**: Returns authenticated user, role (`RESTAURANT` | `DINER`), and active restaurant workspaces.
+### 3. Identity Model & Zero Auto-Merge
+- `users.restaurant_auth_user_id`: Stores external Neon Auth user ID.
+- `users.flynet_user_id`: Stores external Flynet member ID.
+- Resolvers (`resolveOrCreateRestaurantUser`, `resolveOrCreateFlynetDinerUser`) are isolated by external ID; email equality never conflates operator privileges with diner credentials.
 
 ---
 
@@ -62,9 +62,9 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 - **Build Status**: `npm run build` PASS (17 static and dynamic routes compiled).
 - **Automated Test Suites**:
   - `npm run test:unit`: **15/15 PASS** (`campaign.test.mjs` + `qualification.test.mjs`).
-  - `npm run test:audit`: **11/11 PASS** (`audit.test.mjs` security and IDOR isolation tests).
-  - `npm run test:integration`: **6/6 PASS** (`db.integration.test.mjs` against live Neon PostgreSQL).
-  - **Total Tests**: **32/32 PASS** (`npm test`).
+  - `npm run test:audit`: **14/14 PASS** (`audit.test.mjs` security, IDOR, and auth isolation tests).
+  - `npm run test:integration`: **5/5 PASS** (`db.integration.test.mjs` against live Neon PostgreSQL).
+  - **Total Tests**: **34/34 PASS** (`npm test`).
 - **Doctor Script**: `npm run doctor` PASS.
 - **Secret Guardrail**: `ACTIVE` (`.claude/settings.json`).
 
