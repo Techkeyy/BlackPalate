@@ -41,7 +41,7 @@ export async function draftCampaignWithAI(input: CampaignDraftPrompt): Promise<{
 
   const systemPrompt = `You are the BlackPalate AI Culinary Research Strategist.
 Your goal is to help elite restaurants create high-signal tasting campaigns to recruit verified diners on Blackbird/Flynet.
-Respond ONLY with a valid JSON object matching the requested schema.`;
+Respond ONLY with a valid JSON object matching the requested schema. No emoji. Never include emoji characters in generated titles, descriptions, or questions.`;
 
   const userPrompt = `Restaurant: ${input.restaurantName}
 Dish/Concept: ${input.dishName}
@@ -220,7 +220,7 @@ export async function synthesizeFeedbackWithAI(
             {
               role: 'system',
               content:
-                'You are an executive culinary consultant summarizing sensory tasting research for the head chef and restaurant owner. Respond ONLY with a valid JSON object.',
+                'You are an executive culinary consultant summarizing sensory tasting research for the head chef and restaurant owner. Respond ONLY with a valid JSON object. No emoji. Never include emoji characters in summaries, analyses, or recommendations.',
             },
             {
               role: 'user',
