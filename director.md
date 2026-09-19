@@ -18,69 +18,53 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 ---
 
 ## Current Status
-**DIRECTIVE 002C COMPLETE — UX REDESIGN, DARK VISUAL SYSTEM, HERO IMAGE & REACTIVE MOTION DEPLOYED**
+**DIRECTIVE 002D COMPLETE — REAL NEON POSTGRESQL PROVISIONED, USER ACCOUNT MODEL & RESTAURANT WORKSPACE AUTHORIZATION OPERATIONAL**
 
-Flynet Maker account status: **BLOCKED / AWAITING BLACKBIRD ADMIN APPROVAL**.
-All credential-independent flows, full-dark visual system, reactive motion, and research marketplace UX patterns are completely hardened and deployed to production.
+- **Database**: Official Neon PostgreSQL resource (`neon-beige-forest`) provisioned via Vercel Marketplace integration and active across Production, Preview, and Development.
+- **Persistence Architecture**: 100% durable PostgreSQL storage using `@neondatabase/serverless` (zero in-memory fallback in production).
+- **Flynet Maker Status**: **BLOCKED / AWAITING BLACKBIRD ADMIN APPROVAL**. All Flynet dining history evaluations fail closed cleanly until Blackbird admin grants access.
 
 ---
 
-## Directive 002C Implementation Summary
+## Directive 002D System State Summary
 
-### 1. Research-Backed UX Architecture (Respondent, UserTesting, Dscout)
-- **Respondent Pattern**: High-information Opportunity Cards featuring prominent incentive badges (`35 FLY`), estimated duration (`45m`), real-time capacity (`5 spots left`), and clear qualification criteria boxes.
-- **UserTesting Pattern**: Single obvious status progression for diners (`APPLIED` → `ACCEPTED` → `ATTENDED` → `FEEDBACK_SUBMITTED` → `REWARDED`) with primary next-action CTAs.
-- **Dscout Pattern**: Progressive 7-Step Mission Builder for restaurant creators:
-  1. *What are you testing?* (Tasting Title, Dish Concept, Photo URL)
-  2. *What do you want to learn?* (Research Objective, Focus Areas)
-  3. *Who qualifies?* (Deterministic Flynet behavioral rules: visit counts, cuisine history, new vs returning)
-  4. *When & Where?* (Tasting Date, Time Window, NYC Neighborhood)
-  5. *Capacity & Rewards* (Max Diners, $FLY Incentive per Diner)
-  6. *Research Questions* (Custom structured prompts: Rating, Multi-choice, Yes/No, Long text)
-  7. *Review & Publish* (Summary review with AI assistance)
-- **Intentionally Omitted**: Cluttered crypto/token speculation charts, generic multi-column white cards, and distracting gamified visual noise.
+### 1. Real Hosted Database (Neon / Vercel Integration)
+- **Resource**: `neon-beige-forest` (`store_URzvBNEqcn19Rnbh`) installed via official Vercel integration CLI.
+- **Environment**: Automatically provisions and encrypts `DATABASE_URL`, `POSTGRES_URL`, `NEON_PROJECT_ID`, and `NEON_AUTH_BASE_URL` in Vercel production.
+- **Fail-Closed Guard**: `checkDatabaseConfig` strictly asserts `DATABASE_URL` presence in production; in-memory fallback is completely disabled.
 
-### 2. Full-Bleed Dark Hero with Extended Length & Sourced Asset
-- **Image Sourced**: `C:\Users\HomePC\Downloads\727a2da7a0dae3be5d55efe7e1c194b1.jpg` (Chef plating culinary tasting dish), safely mirrored to `public/images/blackpalate-hero.jpg`.
-- **Cinematic Height & Focal Framing**: Extended hero height to `clamp(780px, 120svh, 130svh)` with `objectPosition: 'center 22%'`, ensuring the chef's delicate plating action is fully visible.
-- **Top-Weighted Text & Extended Deep Fade**: Foreground copy sits gracefully in the upper 40% (`padding: clamp(110px, 15vh, 150px) 24px clamp(160px, 24vh, 280px)`), allowing the visual storytelling to breathe downward before melting smoothly into the `#080808` background via a multi-stage linear gradient.
-- **Hero Presentation**: Full viewport bleed with triple-layered ambient overlays (navbar protection, soft center vignette, deep bottom fade), editorial typography (*"Get paid to shape what restaurants serve next."*), and dual action CTAs.
+### 2. Locked BlackPalate Account & Ownership Architecture
+- **Internal User Model (`users`)**:
+  - Central entity: `id`, `displayName`, `email`, `avatarUrl`, `flynetUserId` (nullable UNIQUE), `restaurantAuthUserId` (nullable UNIQUE).
+  - Explicit linking model: External Flynet OAuth identity and Restaurant managed auth identities map directly to internal `User` records.
+- **Restaurant Workspace Ownership (`restaurant_memberships`)**:
+  - Relational mapping: `(userId, restaurantId, role: OWNER | MANAGER)`.
+  - Campaign authorization: Server-side validation on `POST /api/campaigns` requires authenticated operator membership in `campaign.restaurantId`.
+- **User-Centric Application Ownership (`applications`)**:
+  - Ownership key: `userId` (references internal `users(id)`).
+  - External Flynet identity attached separately in `qualification_proof` and `dinerFlynetId`.
+- **Relational Integrity**:
+  - `feedback_submissions` and `reward_receipts` link directly to `application_id` and `user_id`.
+  - Deterministic idempotency keys: `blackpalate:reward:<applicationId>`.
 
-### 3. Dark Visual System & Culinary Aesthetics
-- **Color Palette**:
-  - Base background: `#080808` (Obsidian Jet)
-  - Card & Container surfaces: `#121212` / `#181818` (Deep Charcoal)
-  - Accent / Highlights: `#F59E0B` (Culinary Amber) / `#D97706`
-  - High-Contrast Text: `#F5F5F4` (Primary) / `#A8A29E` (Muted)
-  - Border Tokens: `#262626` / `#333333`
-- **Zero White Card Rule**: All pages and interactive modules strictly adhere to dark theme tokens with no unstyled bright white backgrounds.
-
-### 4. Reactive Scroll Motion & Micro-Interactions
-- **Motion Primitives Module** (`components/MotionPrimitives.tsx`):
-  - `Reveal`: Scroll-triggered reveal (`opacity: 0, y: 60, filter: blur(10px)` → `opacity: 1, y: 0, filter: blur(0px)`) with cubic-bezier easing (`[0.22, 1, 0.36, 1]`) and threshold triggers.
-  - `StaggerContainer` & `StaggerItem`: Fluid cascade animations for marketplace card grids.
-  - `InteractiveCard`: Smooth hover lift (`-3px`) and border highlight transitions.
-  - `InteractiveButton`: Tactile scale on hover/tap.
-- **Accessibility & Reduced Motion**: Automatically queries `useReducedMotion()`; completely bypasses transitions for users with motion sensitivity.
-
-### 5. Strict Zero-Emoji Compliance
-- Replaced all public UI and dashboard emojis with crisp, semantic Lucide SVG icons (`Compass`, `Utensils`, `Calendar`, `Coins`, `Clock`, `Users`, `ShieldCheck`, `ChefHat`, `BarChart3`, `Sparkles`, `Lock`, `Flame`, etc.).
-- Enforced zero-emoji system prompts in `lib/ai.ts` for AI draft generation and synthesis.
-- Verified via codebase regex audit (`0` emoji matches across `app/`, `lib/`, `components/`).
+### 3. Authentication & Session Management
+- **Diner Session**: HttpOnly `bp_access_token` session cookie via Flynet PKCE OAuth callback; resolves/upserts internal BlackPalate `User`.
+- **Restaurant Operator Session**: HttpOnly `bp_operator_token` signed JWT session cookie; resolves/upserts operator `User` and establishes workspace context.
+- **Unified `/api/auth/me`**: Returns authenticated user, role (`RESTAURANT` | `DINER`), and active restaurant workspaces.
 
 ---
 
 ## Workspace & Build Health
 - **Location**: `C:\Users\HomePC\Desktop\BlackPalate`
-- **Toolchain**: Next.js 14.2.14, React 18.3.1, `@flynetdev/core` (0.8.1), `@neondatabase/serverless`, `framer-motion` (11.5.4), `lucide-react` (0.441.0), TypeScript 5.6.2.
+- **Toolchain**: Next.js 14.2.14, React 18.3.1, `@flynetdev/core` (0.8.1), `@neondatabase/serverless` (1.1.0), `framer-motion` (13.4.0), `lucide-react` (1.47.0), TypeScript 5.6.2.
 - **Production URL**: `https://blackpalate.vercel.app`
 - **Public GitHub Repo**: `https://github.com/Techkeyy/BlackPalate`
-- **Build Status**: `npm run build` PASS (15 static and dynamic routes compiled).
+- **Build Status**: `npm run build` PASS (17 static and dynamic routes compiled).
 - **Automated Test Suites**:
-  - `node lib/campaign.test.mjs` PASS (10/10 core product, lifecycle, capacity, and duplicate prevention tests).
-  - `node lib/qualification.test.mjs` PASS (5/5 deterministic qualification engine test cases).
-  - `node lib/audit.test.mjs` PASS (11/11 security audit tests: IDOR isolation, duplicate join, duplicate feedback, capacity race, reward idempotency, production DB fail-closed, AI transparency, zero emoji).
-  - **Total Tests**: 26/26 PASS (`npm test`).
+  - `npm run test:unit`: **15/15 PASS** (`campaign.test.mjs` + `qualification.test.mjs`).
+  - `npm run test:audit`: **11/11 PASS** (`audit.test.mjs` security and IDOR isolation tests).
+  - `npm run test:integration`: **6/6 PASS** (`db.integration.test.mjs` against live Neon PostgreSQL).
+  - **Total Tests**: **32/32 PASS** (`npm test`).
 - **Doctor Script**: `npm run doctor` PASS.
 - **Secret Guardrail**: `ACTIVE` (`.claude/settings.json`).
 
@@ -91,7 +75,10 @@ All credential-independent flows, full-dark visual system, reactive motion, and 
 | Capability / Component | Route / Module | Scope Required | Status | Blocker / Notes |
 |---|---|---|---|---|
 | **Public Host & Callback** | `https://blackpalate.vercel.app` | Vercel production | **INTEGRATION PROVEN** | Live & verified |
-| **Relational Persistence** | `lib/db/repository.ts` | PostgreSQL / Neon | **COMPONENT PROVEN** | Active with seed data & DB layer |
+| **Relational Persistence** | `lib/db/repository.ts` | Neon PostgreSQL | **INTEGRATION PROVEN** | Provisioned (`neon-beige-forest`) & verified |
+| **User & Account System** | `lib/auth.ts` + `/api/auth/me` | Neon DB / Cookies | **INTEGRATION PROVEN** | Internal User model + dual identity mapping |
+| **Workspace Authorization** | `POST /api/campaigns` | Neon DB / Session | **INTEGRATION PROVEN** | RestaurantMembership checked on all mutations |
+| **User-Centric Applications** | `POST /api/campaigns/[id]/apply` | Neon DB / Session | **INTEGRATION PROVEN** | Owned by internal userId, not raw Flynet ID |
 | **Deterministic Qualification Engine** | `lib/qualification.ts` | Pure Logic | **COMPONENT PROVEN** | 5/5 unit tests pass |
 | **Product Lifecycle & Capacity Rules** | `lib/campaign.test.mjs` | Pure Logic / DB | **COMPONENT PROVEN** | 10/10 unit tests pass |
 | **AI Campaign Architect & Synthesis** | `lib/ai.ts` | DeepSeek / OpenAI | **COMPONENT PROVEN** | Operational with heuristic fallbacks & zero emoji |
@@ -107,5 +94,5 @@ All credential-independent flows, full-dark visual system, reactive motion, and 
 ## Next Recommended Action
 Awaiting Blackbird admin approval in Flynet Make. Once approved:
 1. Generate Staging API key (`fly_test_...`) and OAuth Client ID / Secret with redirect URI `https://blackpalate.vercel.app/api/auth/callback`.
-2. Input credentials into `.env.local`.
+2. Input credentials into `.env.local` / Vercel env.
 3. Run `npm run doctor` and execute live capability proofs (Proofs A through G).
