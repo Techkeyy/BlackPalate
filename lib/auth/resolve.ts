@@ -1,6 +1,7 @@
 import { getCookie } from '@/lib/cookies';
 import { ACCESS_COOKIE_NAME } from '@/lib/auth/session-cookies';
 import { createFlynetMemberClient } from '@/lib/flynet';
+import { logOAuthPhase } from '@/lib/auth/oauth-diagnostics';
 import {
   getAuthenticatedOperator,
   resolveOrCreateFlynetDinerUser,
@@ -107,7 +108,14 @@ export async function resolveRequestIdentity(
   } catch {
     accessToken = null;
   }
-  if (!accessToken) return { authenticated: false };
+  if (!accessToken) {
+    logOAuthPhase('member_session_resolution', {
+      accessCookiePresent: false,
+      profileResolved: false,
+      profileIdPresent: false,
+    });
+    return { authenticated: false };
+  }
 
   let session: FlynetSession | null = null;
   try {
@@ -116,10 +124,30 @@ export async function resolveRequestIdentity(
     console.warn('[auth] Flynet session resolution failed:', err);
     session = null;
   }
-  if (!session) return { authenticated: false };
+  if (!session) {
+    logOAuthPhase('member_session_resolution', {
+      accessCookiePresent: true,
+      profileResolved: false,
+      profileIdPresent: false,
+    });
+    return { authenticated: false };
+  }
 
   const flynetId = (session.profile as any)?.id as string;
-  if (!flynetId) return { authenticated: false };
+  if (!flynetId) {
+    logOAuthPhase('member_session_resolution', {
+      accessCookiePresent: true,
+      profileResolved: true,
+      profileIdPresent: false,
+    });
+    return { authenticated: false };
+  }
+
+  logOAuthPhase('member_session_resolution', {
+    accessCookiePresent: true,
+    profileResolved: true,
+    profileIdPresent: true,
+  });
 
   const displayName =
     (session.profile as any)?.display_name ||

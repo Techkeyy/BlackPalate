@@ -16,6 +16,10 @@ type PendingTokens = {
   expires_in?: number;
 };
 
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
 function parsePending(raw: string | null): PendingTokens | null {
   if (!raw) return null;
   try {
@@ -41,7 +45,14 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const step = url.searchParams.get('step');
   const isProduction = process.env.NODE_ENV === 'production';
-  const pending = parsePending(getCookie(req.headers.get('cookie'), OAUTH_PENDING_COOKIE));
+  const rawPending = getCookie(req.headers.get('cookie'), OAUTH_PENDING_COOKIE);
+  const pending = parsePending(rawPending);
+
+  logOAuthPhase('pending_cookie_observed', {
+    present: Boolean(rawPending),
+    serializedSize: rawPending ? utf8ByteLength(rawPending) : 0,
+    step: step || 'missing',
+  });
 
   try {
     if (step === 'access') {
@@ -51,7 +62,11 @@ export async function GET(req: Request) {
       if (!pending.refresh_token) next.searchParams.set('step', 'clear_pending');
       const response = NextResponse.redirect(next);
       response.cookies.set(access.name, access.value, access.options as any);
-      logOAuthPhase('access_cookie_written', { path: '/', httpOnly: true });
+      logOAuthPhase('access_cookie_written', {
+        path: '/',
+        httpOnly: true,
+        serializedSize: utf8ByteLength(access.value),
+      });
       return response;
     }
 
@@ -61,7 +76,11 @@ export async function GET(req: Request) {
       const response = NextResponse.redirect(new URL('/api/auth/session?step=clear_pending', req.url));
       if (refresh) {
         response.cookies.set(refresh.name, refresh.value, refresh.options as any);
-        logOAuthPhase('refresh_cookie_written', { path: '/api/auth', httpOnly: true });
+        logOAuthPhase('refresh_cookie_written', {
+          path: '/api/auth',
+          httpOnly: true,
+          serializedSize: utf8ByteLength(refresh.value),
+        });
       }
       return response;
     }

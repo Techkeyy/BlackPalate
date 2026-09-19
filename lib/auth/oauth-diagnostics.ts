@@ -29,7 +29,9 @@ export function logOAuthPhase(
   phase: string,
   details: Record<string, SafeLogValue> = {}
 ): void {
-  console.info(`[Flynet OAuth] ${phase}`, details);
+  // Keep all diagnostic data in one message so Vercel request logs retain the
+  // safe boolean/numeric fields instead of dropping the second console arg.
+  console.info(`[Flynet OAuth] ${phase} ${JSON.stringify(details)}`);
 }
 
 export function logOAuthFailure(
@@ -44,5 +46,6 @@ export function logOAuthFailure(
     failureCode,
   };
   if (status !== undefined) details.httpStatus = status;
-  console.error('[Flynet OAuth] failure', details);
+  // Never serialize the exception object or its message.
+  console.error(`[Flynet OAuth] failure ${JSON.stringify(details)}`);
 }

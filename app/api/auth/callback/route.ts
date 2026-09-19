@@ -19,6 +19,10 @@ function failureRedirect(
   return NextResponse.redirect(new URL(`/?error=${error}`, req.url));
 }
 
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
@@ -70,14 +74,19 @@ export async function GET(req: Request) {
     // The callback writes one short-lived, HttpOnly handoff cookie. The session
     // route then fans access, refresh, and cleanup cookies across one-cookie
     // redirects because Vercel may fold duplicate Set-Cookie headers.
+    const pendingValue = JSON.stringify({
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token ?? null,
+      expires_in: tokens.expires_in,
+    });
+    logOAuthPhase('pending_cookie_attempted', {
+      attempted: true,
+      serializedSize: utf8ByteLength(pendingValue),
+    });
     const response = NextResponse.redirect(new URL('/api/auth/session?step=access', req.url));
     response.cookies.set(
       OAUTH_PENDING_COOKIE,
-      JSON.stringify({
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token ?? null,
-        expires_in: tokens.expires_in,
-      }),
+      pendingValue,
       oauthPendingCookieOptions(process.env.NODE_ENV === 'production')
     );
     return response;
