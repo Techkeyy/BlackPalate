@@ -129,7 +129,7 @@ export interface RewardReceipt {
   amountFlyWei: string;
   txHash?: string | null;
   idempotencyKey: string;
-  status: 'PENDING' | 'ISSUED' | 'FAILED';
+  status: 'PENDING' | 'ISSUING' | 'ISSUED' | 'FAILED' | 'UNKNOWN';
   issuedAt?: string | null;
   error?: string | null;
 }

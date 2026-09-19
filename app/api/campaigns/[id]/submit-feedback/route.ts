@@ -110,7 +110,7 @@ export async function POST(
     const amountFly = campaign.rewardFly || '10';
     const amountFlyWei = campaign.rewardFlyWei || `${BigInt(Number(amountFly)) * BigInt(10 ** 18)}`;
 
-    let rewardStatus: 'PENDING' | 'ISSUING' | 'ISSUED' | 'FAILED' = 'PENDING';
+    let rewardStatus: 'PENDING' | 'ISSUING' | 'ISSUED' | 'FAILED' | 'UNKNOWN' = 'PENDING';
     let txHash: string | null = null;
     let rewardError: string | null = null;
 
@@ -129,10 +129,12 @@ export async function POST(
           idempotencyKey,
         });
         rewardStatus = 'ISSUED';
-        txHash = (rewardRes as any)?.txHash || (rewardRes as any)?.id || 'tx_flynet_confirmed';
+        // Only store real identifiers actually returned by Flynet. Never invent a fallback tx identifier.
+        txHash = (rewardRes as any)?.txHash || (rewardRes as any)?.transactionHash || null;
       } catch (err: any) {
-        rewardStatus = 'PENDING';
-        rewardError = err.message || 'Reward execution pending Flynet admin approval';
+        const isTimeout = err?.code === 'ETIMEDOUT' || err?.message?.includes('timeout') || err?.status === 504;
+        rewardStatus = isTimeout ? 'UNKNOWN' : 'FAILED';
+        rewardError = err.message || 'Reward issuance failure';
       }
     } else {
       rewardStatus = 'PENDING';

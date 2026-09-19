@@ -382,7 +382,52 @@ export default function BlackPalateApp() {
     }
   }
 
-  // Handle Publishing Campaign
+  // Workspace creation state
+  const [isCreatingWorkspaceModalOpen, setIsCreatingWorkspaceModalOpen] = useState(false);
+  const [workspaceForm, setWorkspaceForm] = useState({
+    name: '',
+    cuisine: '',
+    location: 'NYC',
+    description: '',
+  });
+
+  // Handle Restaurant Workspace Creation (Explicit Action)
+  async function handleCreateWorkspace(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!workspaceForm.name || !workspaceForm.cuisine) {
+      setStatusBanner({ type: 'warning', text: 'Restaurant name and primary cuisine are required.' });
+      return;
+    }
+    try {
+      const res = await fetch('/api/restaurants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: workspaceForm.name,
+          cuisine: [workspaceForm.cuisine],
+          location: workspaceForm.location || 'NYC',
+          description: workspaceForm.description || '',
+        }),
+      });
+      const data = await res.json();
+      if (data.ok && data.restaurant) {
+        setStatusBanner({
+          type: 'success',
+          text: `Restaurant workspace "${data.restaurant.name}" created with OWNER privileges.`,
+        });
+        setIsCreatingWorkspaceModalOpen(false);
+        setWorkspaceForm({ name: '', cuisine: '', location: 'NYC', description: '' });
+        await loadData();
+        setActiveWorkspace(data.restaurant);
+      } else {
+        setStatusBanner({ type: 'warning', text: data.message || `Creation failed: ${data.error}` });
+      }
+    } catch (err: any) {
+      setStatusBanner({ type: 'warning', text: `Creation failed: ${err.message}` });
+    }
+  }
+
+  // Handle Publishing Campaign (Strictly requires active workspace with OWNER/MANAGER role)
   async function handlePublishCampaign() {
     if (!isAuthenticated || authRole !== 'RESTAURANT') {
       setStatusBanner({
@@ -392,9 +437,18 @@ export default function BlackPalateApp() {
       return;
     }
 
+    if (!activeWorkspace || !activeWorkspace.id) {
+      setStatusBanner({
+        type: 'warning',
+        text: 'No active restaurant workspace found. You must create or select a restaurant workspace before publishing.',
+      });
+      setIsCreatingWorkspaceModalOpen(true);
+      return;
+    }
+
     try {
-      const restId = activeWorkspace?.id || 'rest_01';
-      const restName = activeWorkspace?.name || newCampaign.restaurantName;
+      const restId = activeWorkspace.id;
+      const restName = activeWorkspace.name || newCampaign.restaurantName;
       const res = await fetch('/api/campaigns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -688,10 +742,53 @@ export default function BlackPalateApp() {
                   <span>
                     Operator:{' '}
                     <strong style={{ color: '#F59E0B' }}>
-                      {sessionUser?.displayName || 'Chef Marco'}
+                      {sessionUser?.displayName || 'Operator'}
                     </strong>
                   </span>
                 </div>
+
+                {operatorWorkspaces.length > 0 ? (
+                  <select
+                    value={activeWorkspace?.id || ''}
+                    onChange={(e) => {
+                      const found = operatorWorkspaces.find((w) => w.id === e.target.value);
+                      if (found) setActiveWorkspace(found);
+                    }}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      backgroundColor: '#181818',
+                      color: '#F59E0B',
+                      border: '1px solid rgba(245, 158, 11, 0.3)',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      fontWeight: '600',
+                    }}
+                  >
+                    {operatorWorkspaces.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <button
+                    onClick={() => setIsCreatingWorkspaceModalOpen(true)}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                      color: '#F59E0B',
+                      border: '1px solid rgba(245, 158, 11, 0.3)',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      fontWeight: '700',
+                    }}
+                  >
+                    + Create Workspace
+                  </button>
+                )}
+
                 <button
                   onClick={handleLogout}
                   style={{
@@ -4818,6 +4915,27 @@ export default function BlackPalateApp() {
                     COMPONENT PROVEN (Transparent Mode)
                   </td>
                 </tr>
+                <tr
+                  style={{
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                  }}
+                >
+                  <td style={{ padding: '12px 10px', fontWeight: '600' }}>
+                    Managed Restaurant Auth
+                  </td>
+                  <td style={{ padding: '12px 10px' }}>
+                    <code>/api/auth/neon/*</code>
+                  </td>
+                  <td
+                    style={{
+                      padding: '12px 10px',
+                      color: '#F59E0B',
+                      fontWeight: '700',
+                    }}
+                  >
+                    IMPLEMENTED (UAT PENDING)
+                  </td>
+                </tr>
                 <tr>
                   <td style={{ padding: '12px 10px', fontWeight: '600' }}>
                     Flynet OAuth &amp; Reward
@@ -4840,6 +4958,172 @@ export default function BlackPalateApp() {
           </div>
         </main>
       )}
+
+      {/* Explicit Restaurant Workspace Creation Modal */}
+      <AnimatePresence>
+        {isCreatingWorkspaceModalOpen && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.85)',
+              backdropFilter: 'blur(8px)',
+              zIndex: 100,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px',
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              style={{
+                backgroundColor: '#121212',
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+                borderRadius: '16px',
+                padding: '32px',
+                maxWidth: '520px',
+                width: '100%',
+                boxShadow: '0 24px 48px rgba(0, 0, 0, 0.9)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Utensils size={20} color="#F59E0B" />
+                  <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#F5F5F4' }}>
+                    Create Restaurant Workspace
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setIsCreatingWorkspaceModalOpen(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#A8A29E',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <p style={{ fontSize: '14px', color: '#A8A29E', margin: '0 0 20px 0', lineHeight: 1.5 }}>
+                Creating a workspace establishes your restaurant profile on PostgreSQL and grants your authenticated account <strong style={{ color: '#F59E0B' }}>OWNER</strong> privileges.
+              </p>
+
+              <form onSubmit={handleCreateWorkspace} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#A8A29E', marginBottom: '6px' }}>
+                    Restaurant Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Gramercy Tavern"
+                    value={workspaceForm.name}
+                    onChange={(e) => setWorkspaceForm({ ...workspaceForm, name: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      backgroundColor: '#1C1C1C',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      color: '#F5F5F4',
+                      fontSize: '14px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#A8A29E', marginBottom: '6px' }}>
+                    Primary Cuisine
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Contemporary American, Italian, Japanese"
+                    value={workspaceForm.cuisine}
+                    onChange={(e) => setWorkspaceForm({ ...workspaceForm, cuisine: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      backgroundColor: '#1C1C1C',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      color: '#F5F5F4',
+                      fontSize: '14px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#A8A29E', marginBottom: '6px' }}>
+                    Location / Neighborhood
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Flatiron, NYC"
+                    value={workspaceForm.location}
+                    onChange={(e) => setWorkspaceForm({ ...workspaceForm, location: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      backgroundColor: '#1C1C1C',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      color: '#F5F5F4',
+                      fontSize: '14px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '12px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreatingWorkspaceModalOpen(false)}
+                    style={{
+                      padding: '10px 18px',
+                      borderRadius: '8px',
+                      backgroundColor: '#181818',
+                      color: '#A8A29E',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    style={{
+                      padding: '10px 20px',
+                      borderRadius: '8px',
+                      backgroundColor: '#F59E0B',
+                      color: '#080808',
+                      border: 'none',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <Utensils size={14} />
+                    Create Workspace
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
