@@ -50,10 +50,10 @@ export async function POST(req: Request) {
             restaurantMap.set(r.id, {
               id: r.id,
               name: r.name,
-              cuisine: r.cuisine || [],
-              price: r.price,
-              tags: r.tags || [],
-              cohort: r.cohort,
+              cuisine: (r.cuisine || []).map((c: any) => typeof c === 'string' ? c : String(c?.name || c)),
+              price: r.price ?? undefined,
+              tags: (r.tags || []).map((t: any) => typeof t === 'string' ? t : String(t?.name || t)),
+              cohort: r.cohort ?? undefined,
             });
           }
         }

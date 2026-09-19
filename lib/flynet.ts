@@ -44,7 +44,7 @@ export function createFlynetOAuth(): FlynetOAuth {
   return new FlynetOAuth({
     clientId: config.clientId || '',
     clientSecret: config.clientSecret,
-    redirectUri: config.redirectUri,
+    redirectUri: config.redirectUri || '',
     scopes: config.scopes,
     audience: config.audience,
     environment: config.environment,
