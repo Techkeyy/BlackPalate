@@ -719,15 +719,16 @@ export default function BlackPalateApp() {
       {/* ========================================================================= */}
       {activeNav === 'landing' && (
         <div>
-          {/* Full-Bleed Hero Section */}
+          {/* Full-Bleed Hero Section (Extended 118-128svh Cinematic Height) */}
           <section
             style={{
               position: 'relative',
               width: '100%',
-              minHeight: '90vh',
+              minHeight: 'clamp(780px, 120svh, 130svh)',
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
-              justifyContent: 'center',
+              justifyContent: 'flex-start',
               overflow: 'hidden',
             }}
           >
@@ -740,36 +741,48 @@ export default function BlackPalateApp() {
                   width: '100%',
                   height: '100%',
                   objectFit: 'cover',
-                  objectPosition: 'center 35%',
+                  objectPosition: 'center 22%',
+                  transform: 'scale(1.02)',
+                  transition: 'transform 10s ease-out',
                 }}
               />
-              {/* Layered Editorial Dark Gradients */}
+              {/* Layer 1: Top Navigation Protection Gradient */}
               <div
                 style={{
                   position: 'absolute',
                   inset: 0,
                   background:
-                    'radial-gradient(ellipse at center, rgba(8, 8, 8, 0.45) 0%, rgba(8, 8, 8, 0.85) 70%, #080808 100%)',
+                    'linear-gradient(180deg, rgba(8, 8, 8, 0.9) 0%, rgba(8, 8, 8, 0.35) 18%, transparent 38%)',
                 }}
               />
+              {/* Layer 2: Editorial Center Vignette for Text Contrast */}
               <div
                 style={{
                   position: 'absolute',
                   inset: 0,
                   background:
-                    'linear-gradient(180deg, rgba(8, 8, 8, 0.7) 0%, rgba(8, 8, 8, 0.2) 35%, rgba(8, 8, 8, 0.8) 80%, #080808 100%)',
+                    'radial-gradient(ellipse at 50% 28%, rgba(8, 8, 8, 0.3) 0%, rgba(8, 8, 8, 0.65) 55%, rgba(8, 8, 8, 0.92) 100%)',
+                }}
+              />
+              {/* Layer 3: Extended Deep Bottom Fade into Page */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background:
+                    'linear-gradient(180deg, transparent 0%, transparent 40%, rgba(8, 8, 8, 0.3) 60%, rgba(8, 8, 8, 0.75) 80%, rgba(8, 8, 8, 0.96) 93%, #080808 100%)',
                 }}
               />
             </div>
 
-            {/* Hero Foreground Content */}
+            {/* Hero Foreground Content (Positioned Above Center to Let Image Breathe Below) */}
             <div
               style={{
                 position: 'relative',
                 zIndex: 10,
                 maxWidth: '960px',
                 margin: '0 auto',
-                padding: '100px 24px 80px',
+                padding: 'clamp(110px, 15vh, 150px) 24px clamp(160px, 24vh, 280px)',
                 textAlign: 'center',
               }}
             >
