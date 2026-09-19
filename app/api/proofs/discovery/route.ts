@@ -1,41 +1,51 @@
 import { NextResponse } from 'next/server';
-import { flynetDiscoveryFetch } from '@/lib/flynet';
+import { createFlynetDiscoveryClient, normalizeFlynetError } from '@/lib/flynet';
 
 export async function GET() {
-  const result = await flynetDiscoveryFetch('/restaurants?page=0&page_size=10');
+  const discovery = createFlynetDiscoveryClient();
 
-  if (!result.ok) {
+  if (!discovery) {
     return NextResponse.json(
       {
         success: false,
         proof: 'Proof A: API Key Restaurant Discovery',
-        status: result.status,
-        error: result.error,
-        errorCode: result.errorCode,
+        status: 400,
+        error: 'FLYNET_API_KEY is not configured in server environment.',
       },
-      { status: result.status }
+      { status: 400 }
     );
   }
 
-  const rawData: any = result.data || {};
-  const restaurants = rawData.restaurants || [];
-  const pagination = rawData.pagination || {};
+  try {
+    const res = await discovery.restaurants.listRestaurants({ page: 0, pageSize: 10 });
 
-  // Extract sanitized summary of actual data
-  const sample = restaurants.slice(0, 3).map((r: any) => ({
-    id: r.id,
-    name: r.name,
-    cuisine: r.cuisine || [],
-    price: r.price,
-    tags: r.tags || [],
-  }));
+    const restaurants = res.restaurants || [];
+    const sample = restaurants.slice(0, 3).map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      cuisine: r.cuisine || [],
+      price: r.price,
+      tags: r.tags || [],
+    }));
 
-  return NextResponse.json({
-    success: true,
-    proof: 'Proof A: API Key Restaurant Discovery',
-    status: result.status,
-    totalRestaurantsInNetwork: pagination.total_count,
-    sampleRestaurants: sample,
-    rawPagination: pagination,
-  });
+    return NextResponse.json({
+      success: true,
+      proof: 'Proof A: API Key Restaurant Discovery',
+      totalRestaurantsInNetwork: res.pagination?.totalCount,
+      sampleRestaurants: sample,
+      pagination: res.pagination,
+    });
+  } catch (err: any) {
+    const norm = normalizeFlynetError(err);
+    return NextResponse.json(
+      {
+        success: false,
+        proof: 'Proof A: API Key Restaurant Discovery',
+        error: norm.message,
+        kind: norm.kind,
+        code: norm.code,
+      },
+      { status: norm.kind === 'unauthorized' ? 401 : 500 }
+    );
+  }
 }

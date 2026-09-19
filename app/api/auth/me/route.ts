@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { flynetMemberFetch } from '@/lib/flynet';
+import { createFlynetMemberClient, normalizeFlynetError } from '@/lib/flynet';
 
 export async function GET(req: Request) {
   const cookieHeader = req.headers.get('cookie') || '';
@@ -22,20 +22,28 @@ export async function GET(req: Request) {
     );
   }
 
-  // 1. Fetch Profile (Proof C)
-  const profileRes = await flynetMemberFetch<any>('/users/me', accessToken);
+  const member = createFlynetMemberClient(accessToken);
 
-  // 2. Fetch Check-ins (Proof D)
-  const checkInsRes = await flynetMemberFetch<any>('/users/me/check_ins?page=0&page_size=25', accessToken);
+  try {
+    const profile = await member.getProfile();
+    const checkInsList = await member.listCheckIns({ page: 0, pageSize: 25 });
 
-  return NextResponse.json({
-    authenticated: true,
-    profile: profileRes.ok ? profileRes.data : null,
-    profileStatus: profileRes.status,
-    profileError: profileRes.error,
-    checkIns: checkInsRes.ok ? checkInsRes.data?.check_ins || [] : [],
-    checkInsPagination: checkInsRes.ok ? checkInsRes.data?.pagination || {} : null,
-    checkInsStatus: checkInsRes.status,
-    checkInsError: checkInsRes.error,
-  });
+    return NextResponse.json({
+      authenticated: true,
+      profile,
+      checkIns: checkInsList.checkIns || [],
+      checkInsPagination: checkInsList.pagination,
+    });
+  } catch (err: any) {
+    const norm = normalizeFlynetError(err);
+    return NextResponse.json(
+      {
+        authenticated: false,
+        error: norm.message,
+        kind: norm.kind,
+        code: norm.code,
+      },
+      { status: norm.kind === 'unauthorized' ? 401 : norm.kind === 'forbidden' ? 403 : 500 }
+    );
+  }
 }

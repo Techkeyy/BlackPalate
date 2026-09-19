@@ -1,7 +1,21 @@
 import { NextResponse } from 'next/server';
-import { flynetDiscoveryFetch } from '@/lib/flynet';
+import { createFlynetDiscoveryClient, normalizeFlynetError } from '@/lib/flynet';
 
 export async function POST(req: Request) {
+  const discovery = createFlynetDiscoveryClient();
+
+  if (!discovery) {
+    return NextResponse.json(
+      {
+        success: false,
+        proof: 'Proof G: Controlled FLY Reward & Idempotency',
+        status: 400,
+        error: 'FLYNET_API_KEY is not configured in server environment.',
+      },
+      { status: 400 }
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
   const { targetUserId, idempotencyKey } = body;
 
@@ -15,64 +29,50 @@ export async function POST(req: Request) {
     );
   }
 
-  // Use a deterministic idempotency key for this proof test if not provided
   const testKey = idempotencyKey || `blackpalate-proof-reward-${Date.now()}`;
 
-  // Tiny controlled reward: 1 FLY = 10^18 wei string
-  const payload = {
-    user_id: targetUserId,
+  const rewardReq = {
+    userId: targetUserId,
     amount: {
-      value: '1000000000000000000',
-      currency: 'FLY',
+      value: '1000000000000000000', // 1 FLY (18-decimal wei string)
+      currency: 'FLY' as const,
     },
     description: 'BlackPalate Controlled Integration Proof Reward',
-    idempotency_key: testKey,
+    idempotencyKey: testKey,
   };
 
-  // 1st Execution
-  const firstCall = await flynetDiscoveryFetch('/issue_reward', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+  try {
+    // 1st Execution
+    const firstReward = await discovery.rewards.issueReward(rewardReq);
 
-  if (!firstCall.ok) {
+    // 2nd Execution (Replay exact same idempotency key)
+    const replayReward = await discovery.rewards.issueReward(rewardReq);
+
+    const idempotencyVerified =
+      Boolean(firstReward.id && replayReward.id && firstReward.id === replayReward.id);
+
+    return NextResponse.json({
+      success: true,
+      proof: 'Proof G: Controlled FLY Reward & Idempotency',
+      idempotencyVerified,
+      firstReward: {
+        id: firstReward.id,
+        amount: firstReward.amount,
+        createdAt: firstReward.createdAt,
+      },
+      replayRewardId: replayReward.id,
+    });
+  } catch (err: any) {
+    const norm = normalizeFlynetError(err);
     return NextResponse.json(
       {
         success: false,
         proof: 'Proof G: Controlled FLY Reward & Idempotency',
-        stage: 'first_call',
-        status: firstCall.status,
-        error: firstCall.error,
-        errorCode: firstCall.errorCode,
+        error: norm.message,
+        kind: norm.kind,
+        code: norm.code,
       },
-      { status: firstCall.status }
+      { status: norm.kind === 'forbidden' ? 403 : norm.kind === 'unauthorized' ? 401 : 500 }
     );
   }
-
-  // 2nd Execution (Replaying exact same idempotency key)
-  const replayCall = await flynetDiscoveryFetch('/issue_reward', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-
-  const firstData: any = firstCall.data || {};
-  const replayData: any = replayCall.data || {};
-
-  return NextResponse.json({
-    success: true,
-    proof: 'Proof G: Controlled FLY Reward & Idempotency',
-    firstCallStatus: firstCall.status, // Expected 201
-    replayCallStatus: replayCall.status, // Expected 200
-    idempotencyVerified:
-      firstData.id &&
-      replayData.id &&
-      firstData.id === replayData.id &&
-      firstCall.status === 201 &&
-      replayCall.status === 200,
-    rewardSummary: {
-      rewardId: firstData.id,
-      amount: firstData.amount,
-      createdAt: firstData.created_at,
-    },
-  });
 }

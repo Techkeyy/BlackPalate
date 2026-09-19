@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { flynetMemberFetch, flynetDiscoveryFetch } from '@/lib/flynet';
+import {
+  createFlynetMemberClient,
+  createFlynetDiscoveryClient,
+  normalizeFlynetError,
+} from '@/lib/flynet';
 import {
   evaluateDinerQualification,
   FlynetRestaurantMetadata,
@@ -27,63 +31,71 @@ export async function POST(req: Request) {
     );
   }
 
-  // 1. Fetch user check-ins
-  const checkInsRes = await flynetMemberFetch<any>(
-    '/users/me/check_ins?page=0&page_size=50',
-    accessToken
-  );
+  const member = createFlynetMemberClient(accessToken);
+  const discovery = createFlynetDiscoveryClient();
 
-  if (!checkInsRes.ok) {
+  try {
+    // 1. Fetch user check-ins
+    const checkInsRes = await member.listCheckIns({ page: 0, pageSize: 50 });
+    const checkIns = checkInsRes.checkIns || [];
+
+    // 2. Fetch restaurant discovery catalog to build correlation map
+    const restaurantMap = new Map<string, FlynetRestaurantMetadata>();
+
+    if (discovery) {
+      try {
+        const discRes = await discovery.restaurants.listRestaurants({ page: 0, pageSize: 100 });
+        if (discRes.restaurants) {
+          for (const r of discRes.restaurants) {
+            restaurantMap.set(r.id, {
+              id: r.id,
+              name: r.name,
+              cuisine: r.cuisine || [],
+              price: r.price,
+              tags: r.tags || [],
+              cohort: r.cohort,
+            });
+          }
+        }
+      } catch {
+        // Continue with available check-in data even if discovery catalog fails
+      }
+    }
+
+    // 3. Define candidate deterministic test rules
+    const testRules: QualificationRule[] = [
+      {
+        type: 'MIN_TOTAL_CHECKINS',
+        threshold: 1,
+        description: 'At least 1 verified Blackbird dining visit',
+      },
+      {
+        type: 'MIN_DISTINCT_VENUES',
+        threshold: 1,
+        description: 'At least 1 distinct restaurant venue visited',
+      },
+    ];
+
+    // 4. Run deterministic qualification engine
+    const qualificationResult = evaluateDinerQualification(checkIns as any, testRules, restaurantMap);
+
+    return NextResponse.json({
+      success: true,
+      proof: 'Proof E: Qualification Rule Derivation',
+      totalCheckInsFound: checkIns.length,
+      distinctRestaurantsInCatalog: restaurantMap.size,
+      qualificationResult,
+    });
+  } catch (err: any) {
+    const norm = normalizeFlynetError(err);
     return NextResponse.json(
       {
         success: false,
-        error: `Failed to fetch member check-ins: ${checkInsRes.error}`,
+        error: norm.message,
+        kind: norm.kind,
+        code: norm.code,
       },
-      { status: checkInsRes.status }
+      { status: norm.kind === 'unauthorized' ? 401 : norm.kind === 'forbidden' ? 403 : 500 }
     );
   }
-
-  const checkIns = checkInsRes.data?.check_ins || [];
-
-  // 2. Fetch restaurant discovery catalog to build correlation map
-  const discRes = await flynetDiscoveryFetch<any>('/restaurants?page=0&page_size=100');
-  const restaurantMap = new Map<string, FlynetRestaurantMetadata>();
-
-  if (discRes.ok && discRes.data?.restaurants) {
-    for (const r of discRes.data.restaurants) {
-      restaurantMap.set(r.id, {
-        id: r.id,
-        name: r.name,
-        cuisine: r.cuisine || [],
-        price: r.price,
-        tags: r.tags || [],
-        cohort: r.cohort,
-      });
-    }
-  }
-
-  // 3. Define candidate deterministic test rules
-  const testRules: QualificationRule[] = [
-    {
-      type: 'MIN_TOTAL_CHECKINS',
-      threshold: 1,
-      description: 'At least 1 verified Blackbird dining visit',
-    },
-    {
-      type: 'MIN_DISTINCT_VENUES',
-      threshold: 1,
-      description: 'At least 1 distinct restaurant venue visited',
-    },
-  ];
-
-  // 4. Run deterministic qualification engine
-  const qualificationResult = evaluateDinerQualification(checkIns, testRules, restaurantMap);
-
-  return NextResponse.json({
-    success: true,
-    proof: 'Proof E: Qualification Rule Derivation',
-    totalCheckInsFound: checkIns.length,
-    distinctRestaurantsInCatalog: restaurantMap.size,
-    qualificationResult,
-  });
 }

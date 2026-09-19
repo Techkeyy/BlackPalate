@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getFlynetConfig } from '@/lib/flynet';
+import { createFlynetOAuth, getFlynetConfig } from '@/lib/flynet';
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -8,19 +8,21 @@ export async function GET(req: Request) {
   const error = url.searchParams.get('error');
   const errorDescription = url.searchParams.get('error_description');
 
+  // Handle explicit OAuth errors from consent screen
   if (error) {
     return NextResponse.redirect(
       new URL(`/?error=${encodeURIComponent(errorDescription || error)}`, req.url)
     );
   }
 
+  // Safe handler before OAuth / missing code
   if (!code) {
     return NextResponse.redirect(
-      new URL('/?error=missing_code', req.url)
+      new URL('/?error=missing_authorization_code', req.url)
     );
   }
 
-  // Retrieve code_verifier and state from cookies
+  // Retrieve code_verifier and state from HttpOnly cookies
   const cookieHeader = req.headers.get('cookie') || '';
   const cookies = Object.fromEntries(
     cookieHeader.split(';').map(c => {
@@ -38,68 +40,57 @@ export async function GET(req: Request) {
     );
   }
 
-  const config = getFlynetConfig();
+  if (!storedVerifier) {
+    return NextResponse.redirect(
+      new URL('/?error=missing_pkce_verifier', req.url)
+    );
+  }
 
-  // Exchange code at /oauth/token
-  const tokenUrl = `${config.oauthBaseUrl}/token`;
-  const tokenParams = new URLSearchParams({
-    grant_type: 'authorization_code',
-    client_id: config.clientId || '',
-    client_secret: config.clientSecret || '',
-    code,
-    redirect_uri: config.redirectUri || '',
-    code_verifier: storedVerifier || '',
-  });
+  const config = getFlynetConfig();
+  if (!config.clientSecret) {
+    return NextResponse.redirect(
+      new URL('/?error=server_missing_client_secret', req.url)
+    );
+  }
 
   try {
-    const tokenRes = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: tokenParams.toString(),
+    const oauth = createFlynetOAuth();
+    const tokens = await oauth.exchangeCode({
+      code,
+      codeVerifier: storedVerifier,
     });
-
-    if (!tokenRes.ok) {
-      const errText = await tokenRes.text().catch(() => '');
-      return NextResponse.redirect(
-        new URL(`/?error=${encodeURIComponent(`Token exchange failed: ${tokenRes.status} ${errText}`)}`, req.url)
-      );
-    }
-
-    const tokenData = await tokenRes.json();
-    const { access_token, refresh_token, expires_in } = tokenData;
 
     const response = NextResponse.redirect(new URL('/?oauth_success=true', req.url));
 
-    // Stash access token in HttpOnly session cookie (short-lived)
-    response.cookies.set('bp_access_token', access_token, {
+    // Token-Mediating Backend Pattern:
+    // 1. Refresh token lives in HttpOnly secure cookie scoped to /api/auth
+    if (tokens.refresh_token) {
+      response.cookies.set('bp_refresh_token', tokens.refresh_token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/api/auth',
+        maxAge: 30 * 24 * 3600, // 30 days
+      });
+    }
+
+    // 2. Short-lived session token (cookie for SSR, in-memory on client)
+    response.cookies.set('bp_access_token', tokens.access_token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
-      maxAge: expires_in || 3600,
+      maxAge: tokens.expires_in || 3600,
     });
 
-    // Stash refresh token in HttpOnly cookie (up to 30 days)
-    if (refresh_token) {
-      response.cookies.set('bp_refresh_token', refresh_token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 30 * 24 * 3600,
-      });
-    }
-
-    // Clean up temporary verifier cookies
+    // Clean up one-time PKCE verifier cookies
     response.cookies.delete('bp_oauth_verifier');
     response.cookies.delete('bp_oauth_state');
 
     return response;
   } catch (err: any) {
     return NextResponse.redirect(
-      new URL(`/?error=${encodeURIComponent(err.message || 'Token exchange network error')}`, req.url)
+      new URL(`/?error=${encodeURIComponent(err.message || 'OAuth token exchange failed')}`, req.url)
     );
   }
 }
