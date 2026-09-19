@@ -1,6 +1,11 @@
 import { getCookie } from '@/lib/cookies';
 import { ACCESS_COOKIE_NAME } from '@/lib/auth/session-cookies';
-import { createFlynetMemberClient } from '@/lib/flynet';
+import {
+  extractFlynetCheckIns,
+  flynetMemberFetch,
+  FLYNET_MEMBER_PATHS,
+  type FlynetMemberFailure,
+} from '@/lib/flynet-member';
 import { logOAuthPhase } from '@/lib/auth/oauth-diagnostics';
 import {
   getAuthenticatedOperator,
@@ -10,7 +15,7 @@ import {
 import { User } from '@/lib/db/types';
 
 export type RequestIdentity =
-  | { authenticated: false }
+  | { authenticated: false; failure?: IdentityFailure; upstreamStatus?: number | null }
   | {
       authenticated: true;
       role: 'RESTAURANT';
@@ -28,6 +33,12 @@ export type RequestIdentity =
       checkIns: any[];
     };
 
+export type IdentityFailure =
+  | 'missing_access_token'
+  | 'invalid_token'
+  | 'insufficient_scope'
+  | 'provider_unavailable';
+
 export interface FlynetSession {
   profile: any;
   checkIns: any[];
@@ -44,22 +55,71 @@ export interface ResolveDeps {
   }) => Promise<User>;
 }
 
-async function defaultFlynetSession(accessToken: string): Promise<FlynetSession | null> {
-  try {
-    const member = createFlynetMemberClient(accessToken);
-    const profile = await member.getProfile();
-    if (!profile || !(profile as any).id) return null;
-    let checkIns: any[] = [];
-    try {
-      const res = await member.listCheckIns({ page: 0, pageSize: 50 });
-      checkIns = (res as any)?.checkIns || [];
-    } catch {
-      checkIns = [];
-    }
-    return { profile, checkIns };
-  } catch {
-    return null;
+class FlynetProfileResolutionError extends Error {
+  constructor(
+    public readonly failure: FlynetMemberFailure,
+    public readonly upstreamStatus: number | null
+  ) {
+    super('Flynet member profile resolution failed');
+    this.name = 'FlynetProfileResolutionError';
   }
+}
+
+type FlynetProfile = {
+  id?: unknown;
+  display_name?: unknown;
+  name?: unknown;
+  username?: unknown;
+  avatar_url?: unknown;
+  image?: unknown;
+};
+
+async function defaultFlynetSession(accessToken: string): Promise<FlynetSession | null> {
+  const profileResult = await flynetMemberFetch<FlynetProfile>(
+    accessToken,
+    FLYNET_MEMBER_PATHS.profile
+  );
+
+  if (!profileResult.ok) {
+    logOAuthPhase('member_profile_resolution', {
+      status: profileResult.status ?? 0,
+      authError: profileResult.authError,
+      bodyPresent: profileResult.bodyPresent,
+      profileResolved: false,
+    });
+    throw new FlynetProfileResolutionError(profileResult.failure, profileResult.status);
+  }
+
+  const profile = profileResult.data;
+  if (!profile || typeof profile.id !== 'string' || profile.id.length === 0) {
+    logOAuthPhase('member_profile_resolution', {
+      status: profileResult.status,
+      authError: profileResult.authError,
+      bodyPresent: profileResult.bodyPresent,
+      profileResolved: false,
+    });
+    throw new FlynetProfileResolutionError('provider_unavailable', profileResult.status);
+  }
+
+  const checkInsResult = await flynetMemberFetch<unknown>(
+    accessToken,
+    FLYNET_MEMBER_PATHS.checkIns
+  );
+  const checkIns = checkInsResult.ok ? extractFlynetCheckIns(checkInsResult.data) : [];
+  logOAuthPhase('member_checkins_resolution', {
+    status: checkInsResult.status ?? 0,
+    authError: checkInsResult.authError,
+    resolved: checkInsResult.ok,
+    count: checkIns.length,
+  });
+
+  logOAuthPhase('member_profile_resolution', {
+    status: profileResult.status,
+    authError: profileResult.authError,
+    bodyPresent: profileResult.bodyPresent,
+    profileResolved: true,
+  });
+  return { profile, checkIns };
 }
 
 export const defaultResolveDeps: ResolveDeps = {
@@ -113,15 +173,22 @@ export async function resolveRequestIdentity(
       accessCookiePresent: false,
       profileResolved: false,
       profileIdPresent: false,
+      failure: 'missing_access_token',
     });
-    return { authenticated: false };
+    return { authenticated: false, failure: 'missing_access_token' };
   }
 
   let session: FlynetSession | null = null;
+  let failure: IdentityFailure = 'provider_unavailable';
+  let upstreamStatus: number | null = null;
   try {
     session = await deps.getFlynetSession(accessToken);
   } catch (err) {
     console.warn('[auth] Flynet session resolution failed:', err);
+    if (err instanceof FlynetProfileResolutionError) {
+      failure = err.failure;
+      upstreamStatus = err.upstreamStatus;
+    }
     session = null;
   }
   if (!session) {
@@ -129,8 +196,10 @@ export async function resolveRequestIdentity(
       accessCookiePresent: true,
       profileResolved: false,
       profileIdPresent: false,
+      failure,
+      status: upstreamStatus ?? 0,
     });
-    return { authenticated: false };
+    return { authenticated: false, failure, upstreamStatus };
   }
 
   const flynetId = (session.profile as any)?.id as string;
@@ -139,14 +208,18 @@ export async function resolveRequestIdentity(
       accessCookiePresent: true,
       profileResolved: true,
       profileIdPresent: false,
+      failure: 'provider_unavailable',
+      status: 200,
     });
-    return { authenticated: false };
+    return { authenticated: false, failure: 'provider_unavailable', upstreamStatus: 200 };
   }
 
   logOAuthPhase('member_session_resolution', {
     accessCookiePresent: true,
     profileResolved: true,
     profileIdPresent: true,
+    failure: 'none',
+    status: 200,
   });
 
   const displayName =

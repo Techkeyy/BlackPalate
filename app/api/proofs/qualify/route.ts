@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
+import { createFlynetDiscoveryClient, normalizeFlynetError } from '@/lib/flynet';
 import {
-  createFlynetMemberClient,
-  createFlynetDiscoveryClient,
-  normalizeFlynetError,
-} from '@/lib/flynet';
+  extractFlynetCheckIns,
+  flynetMemberFetch,
+  FLYNET_MEMBER_PATHS,
+} from '@/lib/flynet-member';
 import {
   evaluateDinerQualification,
   FlynetRestaurantMetadata,
@@ -23,15 +24,29 @@ export async function POST(req: Request) {
     return safeError(401, 'UNAUTHORIZED', 'qualify proof without session');
   }
 
-  const member = createFlynetMemberClient(accessToken);
   const discovery = createFlynetDiscoveryClient();
 
   try {
-    // 1. Fetch user check-ins
-    const checkInsRes = await member.listCheckIns({ page: 0, pageSize: 50 });
-    const checkIns = checkInsRes.checkIns || [];
+    const checkInsResult = await flynetMemberFetch<unknown>(
+      accessToken,
+      FLYNET_MEMBER_PATHS.checkIns
+    );
+    if (!checkInsResult.ok) {
+      const status =
+        checkInsResult.failure === 'invalid_token'
+          ? 401
+          : checkInsResult.failure === 'insufficient_scope'
+            ? 403
+            : 503;
+      return safeError(
+        status,
+        status === 401 ? 'UNAUTHORIZED' : 'FLYNET_UNAVAILABLE',
+        'member check-in request failed'
+      );
+    }
+    const checkIns = extractFlynetCheckIns(checkInsResult.data);
 
-    // 2. Fetch restaurant discovery catalog to build correlation map
+    // Fetch restaurant discovery catalog to build correlation map.
     const restaurantMap = new Map<string, FlynetRestaurantMetadata>();
 
     if (discovery) {
@@ -50,11 +65,10 @@ export async function POST(req: Request) {
           }
         }
       } catch {
-        // Continue with available check-in data even if discovery catalog fails
+        // Continue with available check-in data even if discovery catalog fails.
       }
     }
 
-    // 3. Define candidate deterministic test rules
     const testRules: QualificationRule[] = [
       {
         type: 'MIN_TOTAL_CHECKINS',
@@ -68,7 +82,6 @@ export async function POST(req: Request) {
       },
     ];
 
-    // 4. Run deterministic qualification engine
     const qualificationResult = evaluateDinerQualification(checkIns as any, testRules, restaurantMap);
 
     return NextResponse.json({

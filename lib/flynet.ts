@@ -1,7 +1,6 @@
 import {
   FlynetOAuth,
   FlynetDiscoveryClient,
-  FlynetMemberClient,
   type FlynetEnvironment,
   normalizeFlynetError,
 } from '@flynetdev/core';
@@ -56,14 +55,6 @@ export function createFlynetDiscoveryClient(): FlynetDiscoveryClient | null {
   if (!config.apiKey) return null;
   return new FlynetDiscoveryClient({
     apiKey: config.apiKey,
-    environment: config.environment,
-  });
-}
-
-export function createFlynetMemberClient(accessToken: string): FlynetMemberClient {
-  const config = getFlynetConfig();
-  return new FlynetMemberClient({
-    accessToken,
     environment: config.environment,
   });
 }

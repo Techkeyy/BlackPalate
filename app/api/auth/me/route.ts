@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createFlynetOAuth } from '@/lib/flynet';
 import { getCookie } from '@/lib/cookies';
 import { db } from '@/lib/db/repository';
-import { resolveRequestIdentity, RequestIdentity } from '@/lib/auth/resolve';
+import { resolveRequestIdentity, type RequestIdentity } from '@/lib/auth/resolve';
 import {
   ACCESS_COOKIE_NAME,
   REFRESH_COOKIE_NAME,
@@ -35,10 +35,9 @@ async function resolveWithRefresh(req: Request): Promise<{
   let refreshSucceeded = false;
   let refreshedCookies: RefreshedCookies | null = null;
 
-  // A browser can retain the refresh cookie while rejecting/expiring the
-  // access cookie. Recover once at the authoritative session boundary so the
-  // user does not get bounced back through Passport for a valid session.
-  if (!identity.authenticated && refreshToken) {
+  // Refresh only after the raw member profile request proves the access token
+  // is invalid. Valid profiles and scope/provider failures must not rotate it.
+  if (!identity.authenticated && identity.failure === 'invalid_token' && refreshToken) {
     refreshAttempted = true;
     try {
       const tokens = await createFlynetOAuth().refresh({ refreshToken });
@@ -52,7 +51,7 @@ async function resolveWithRefresh(req: Request): Promise<{
         refreshSucceeded = true;
       }
     } catch {
-      // Keep the original unauthenticated result and safe frontend message.
+      // Keep the original safe unauthenticated result.
     }
   }
 
@@ -63,6 +62,8 @@ async function resolveWithRefresh(req: Request): Promise<{
     refreshSucceeded,
     authenticated: identity.authenticated,
     role: identity.authenticated ? identity.role : 'NONE',
+    failure: identity.authenticated ? 'none' : identity.failure || 'unknown',
+    status: identity.authenticated ? 200 : identity.upstreamStatus ?? 0,
   });
 
   return { identity, refreshedCookies };
