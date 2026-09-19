@@ -82,7 +82,13 @@ export async function POST(req: Request) {
       },
     ];
 
-    const qualificationResult = evaluateDinerQualification(checkIns as any, testRules, restaurantMap);
+    const evaluatedQualification = evaluateDinerQualification(checkIns as any, testRules, restaurantMap);
+    const qualificationResult = checkIns.length === 0
+      ? {
+          ...evaluatedQualification,
+          explanation: 'No matching verified dining history yet.',
+        }
+      : evaluatedQualification;
 
     return NextResponse.json({
       success: true,

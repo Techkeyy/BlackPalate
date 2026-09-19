@@ -167,6 +167,17 @@ async function resolveWithRefresh(req: Request): Promise<{
   return { identity, refreshedCookies };
 }
 
+function sanitizeFlynetProfile(profile: unknown): Record<string, string | null> {
+  const source = profile && typeof profile === 'object' ? profile as Record<string, unknown> : {};
+  return {
+    id: typeof source.id === 'string' ? source.id : null,
+    first_name: typeof source.first_name === 'string' ? source.first_name : null,
+    last_name: typeof source.last_name === 'string' ? source.last_name : null,
+    avatar: typeof source.avatar === 'string' ? source.avatar : null,
+    account_status: typeof source.account_status === 'string' ? source.account_status : null,
+  };
+}
+
 function responseWithSessionCookies(
   body: Record<string, unknown>,
   refreshedCookies: RefreshedCookies | null,
@@ -244,13 +255,11 @@ export async function GET(req: Request) {
       authenticated: true,
       role: 'DINER',
       user: identity.user,
-      profile: identity.profile,
+      profile: sanitizeFlynetProfile(identity.profile),
       checkIns: identity.checkIns,
       checkInsPagination: null,
     },
     refreshedCookies
   );
 }
-
-
 
