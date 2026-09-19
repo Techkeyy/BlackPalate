@@ -11,11 +11,12 @@ import {
   getAuthenticatedOperator,
   resolveOrCreateFlynetDinerUser,
   AuthenticatedOperatorContext,
+  type FlynetUserResolutionTrace,
 } from '@/lib/auth';
 import { User } from '@/lib/db/types';
 
 export type RequestIdentity =
-  | { authenticated: false; failure?: IdentityFailure; upstreamStatus?: number | null }
+  | { authenticated: false; failure?: IdentityFailure; upstreamStatus?: number | null; debug?: DinerResolutionDebug }
   | {
       authenticated: true;
       role: 'RESTAURANT';
@@ -31,13 +32,31 @@ export type RequestIdentity =
       dinerName: string;
       profile: any;
       checkIns: any[];
+      debug?: DinerResolutionDebug;
     };
 
 export type IdentityFailure =
   | 'missing_access_token'
   | 'invalid_token'
   | 'insufficient_scope'
-  | 'provider_unavailable';
+  | 'provider_unavailable'
+  | 'internal_user_resolution_failed';
+
+export type DinerResolutionDebug = {
+  stage: 'PROFILE_OK' | 'FLYNET_ID_MISSING' | 'USER_LOOKUP_FAILED' | 'USER_CREATE_FAILED' | 'USER_RESOLVED';
+  topLevelKeys: string[];
+  idFieldUsed: 'id';
+  idPresent: boolean;
+  profileFetched: boolean;
+  flynetIdPresent: boolean;
+  userLookupStarted: boolean;
+  userLookupFound: boolean;
+  userLookupErrorKind: string | null;
+  userCreateStarted: boolean;
+  userCreateSucceeded: boolean;
+  userCreateErrorKind: string | null;
+  finalRole: 'DINER' | 'NONE';
+};
 
 export interface FlynetSession {
   profile: any;
@@ -48,11 +67,10 @@ export interface ResolveDeps {
   getOperator: (req: Request) => Promise<AuthenticatedOperatorContext | null>;
   readAccessToken: (req: Request) => string | null;
   getFlynetSession: (accessToken: string) => Promise<FlynetSession | null>;
-  resolveDinerUser: (identity: {
-    id: string;
-    displayName?: string;
-    avatarUrl?: string;
-  }) => Promise<User>;
+  resolveDinerUser: (
+    identity: { id: string; displayName?: string; avatarUrl?: string },
+    trace?: FlynetUserResolutionTrace
+  ) => Promise<User>;
 }
 
 class FlynetProfileResolutionError extends Error {
@@ -126,12 +144,15 @@ export const defaultResolveDeps: ResolveDeps = {
   getOperator: (req) => getAuthenticatedOperator(req),
   readAccessToken: (req) => getCookie(req.headers.get('cookie'), ACCESS_COOKIE_NAME),
   getFlynetSession: defaultFlynetSession,
-  resolveDinerUser: (identity) =>
-    resolveOrCreateFlynetDinerUser({
-      id: identity.id,
-      displayName: identity.displayName,
-      avatarUrl: identity.avatarUrl,
-    }),
+  resolveDinerUser: (identity, trace) =>
+    resolveOrCreateFlynetDinerUser(
+      {
+        id: identity.id,
+        displayName: identity.displayName,
+        avatarUrl: identity.avatarUrl,
+      },
+      trace
+    ),
 };
 
 /**
@@ -222,15 +243,80 @@ export async function resolveRequestIdentity(
     status: 200,
   });
 
+  const profileObject =
+    session.profile && typeof session.profile === 'object' && !Array.isArray(session.profile)
+      ? (session.profile as Record<string, unknown>)
+      : {};
+  const topLevelKeys = Object.keys(profileObject).sort();
+  const idPresent = typeof profileObject.id === 'string' && profileObject.id.length > 0;
   const displayName =
     (session.profile as any)?.display_name ||
     (session.profile as any)?.name ||
     (session.profile as any)?.username ||
     flynetId;
-  const user = await deps.resolveDinerUser({
-    id: flynetId,
-    displayName,
-    avatarUrl: (session.profile as any)?.avatar_url || (session.profile as any)?.image,
+  const debug: DinerResolutionDebug = {
+    stage: 'PROFILE_OK',
+    topLevelKeys,
+    idFieldUsed: 'id',
+    idPresent,
+    profileFetched: true,
+    flynetIdPresent: idPresent,
+    userLookupStarted: false,
+    userLookupFound: false,
+    userLookupErrorKind: null,
+    userCreateStarted: false,
+    userCreateSucceeded: false,
+    userCreateErrorKind: null,
+    finalRole: 'NONE',
+  };
+  const trace: FlynetUserResolutionTrace = {
+    onLookupStarted: () => { debug.userLookupStarted = true; },
+    onLookupFound: found => { debug.userLookupFound = found; },
+    onLookupFailed: kind => { debug.userLookupErrorKind = kind; },
+    onCreateStarted: () => { debug.userCreateStarted = true; },
+    onCreateSucceeded: () => { debug.userCreateSucceeded = true; },
+    onCreateFailed: kind => { debug.userCreateErrorKind = kind; },
+  };
+
+  let user: User;
+  try {
+    user = await deps.resolveDinerUser(
+      {
+        id: flynetId,
+        displayName,
+        avatarUrl: (session.profile as any)?.avatar_url || (session.profile as any)?.image,
+      },
+      trace
+    );
+  } catch (error) {
+    debug.stage = debug.userCreateStarted ? 'USER_CREATE_FAILED' : 'USER_LOOKUP_FAILED';
+    logOAuthPhase('member_user_resolution', {
+      profileFetched: debug.profileFetched,
+      flynetIdPresent: debug.flynetIdPresent,
+      userLookupStarted: debug.userLookupStarted,
+      userLookupFound: debug.userLookupFound,
+      userCreateStarted: debug.userCreateStarted,
+      userCreateSucceeded: debug.userCreateSucceeded,
+      userCreateErrorKind: debug.userCreateErrorKind ?? 'none',
+      finalRole: 'NONE',
+      debugStage: debug.stage,
+    });
+    console.warn('[auth] internal Flynet user resolution failed:', error instanceof Error ? error.name : 'unknown');
+    return { authenticated: false, failure: 'internal_user_resolution_failed', upstreamStatus: null, debug };
+  }
+
+  debug.stage = 'USER_RESOLVED';
+  debug.finalRole = 'DINER';
+  logOAuthPhase('member_user_resolution', {
+    profileFetched: debug.profileFetched,
+    flynetIdPresent: debug.flynetIdPresent,
+    userLookupStarted: debug.userLookupStarted,
+    userLookupFound: debug.userLookupFound,
+    userCreateStarted: debug.userCreateStarted,
+    userCreateSucceeded: debug.userCreateSucceeded,
+    userCreateErrorKind: debug.userCreateErrorKind ?? 'none',
+    finalRole: 'DINER',
+    debugStage: debug.stage,
   });
 
   return {
@@ -241,5 +327,10 @@ export async function resolveRequestIdentity(
     dinerName: displayName,
     profile: session.profile,
     checkIns: session.checkIns,
+    debug,
   };
 }
+
+
+
+

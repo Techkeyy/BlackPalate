@@ -69,6 +69,24 @@ async function resolveWithRefresh(req: Request): Promise<{
   return { identity, refreshedCookies };
 }
 
+function memberDebugFields(identity: RequestIdentity): Record<string, unknown> {
+  const debug = 'debug' in identity ? identity.debug : undefined;
+  return {
+    debugStage: debug?.stage ?? null,
+    topLevelKeys: debug?.topLevelKeys ?? [],
+    idFieldUsed: debug?.idFieldUsed ?? 'id',
+    idPresent: debug?.idPresent ?? false,
+    profileFetched: debug?.profileFetched ?? false,
+    flynetIdPresent: debug?.flynetIdPresent ?? false,
+    userLookupStarted: debug?.userLookupStarted ?? false,
+    userLookupFound: debug?.userLookupFound ?? false,
+    userCreateStarted: debug?.userCreateStarted ?? false,
+    userCreateSucceeded: debug?.userCreateSucceeded ?? false,
+    userCreateErrorKind: debug?.userCreateErrorKind ?? null,
+    finalRole: debug?.finalRole ?? 'NONE',
+  };
+}
+
 function responseWithSessionCookies(
   body: Record<string, unknown>,
   refreshedCookies: RefreshedCookies | null
@@ -105,6 +123,7 @@ export async function GET(req: Request) {
         authenticated: false,
         role: null,
         user: null,
+        ...memberDebugFields(identity),
       },
       refreshedCookies
     );
@@ -138,3 +157,5 @@ export async function GET(req: Request) {
     refreshedCookies
   );
 }
+
+

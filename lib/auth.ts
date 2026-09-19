@@ -29,6 +29,39 @@ export interface AuthenticatedOperatorContext {
   memberships: RestaurantMembership[];
 }
 
+export type FlynetUserResolutionErrorKind =
+  | 'database_unavailable'
+  | 'database_query_failed'
+  | 'database_insert_failed'
+  | 'uniqueness_conflict'
+  | 'required_field'
+  | 'schema_mismatch'
+  | 'unknown';
+
+export interface FlynetUserResolutionTrace {
+  onLookupStarted?: () => void;
+  onLookupFound?: (found: boolean) => void;
+  onLookupFailed?: (kind: FlynetUserResolutionErrorKind) => void;
+  onCreateStarted?: () => void;
+  onCreateSucceeded?: () => void;
+  onCreateFailed?: (kind: FlynetUserResolutionErrorKind) => void;
+}
+
+function classifyFlynetUserResolutionError(error: unknown): FlynetUserResolutionErrorKind {
+  const message = error instanceof Error ? error.message.toLowerCase() : '';
+  if (message.includes('database_unavailable') || message.includes('connection string')) {
+    return 'database_unavailable';
+  }
+  if (message.includes('database query failed')) return 'database_query_failed';
+  if (message.includes('database insert failed')) return 'database_insert_failed';
+  if (message.includes('duplicate') || message.includes('unique constraint')) {
+    return 'uniqueness_conflict';
+  }
+  if (message.includes('not-null') || message.includes('required')) return 'required_field';
+  if (message.includes('column') || message.includes('schema')) return 'schema_mismatch';
+  return 'unknown';
+}
+
 /**
  * Validates a real managed Neon Auth session from the incoming request.
  * Resolves the authenticated external Neon Auth ID to the internal BlackPalate User.
@@ -113,18 +146,34 @@ export async function resolveOrCreateFlynetDinerUser(flynetProfile: {
   displayName?: string;
   name?: string;
   avatarUrl?: string;
-}): Promise<User> {
-  let user = await db.getUserByFlynetId(flynetProfile.id);
+}, trace: FlynetUserResolutionTrace = {}): Promise<User> {
+  trace.onLookupStarted?.();
+  let user: User | null;
+  try {
+    user = await db.getUserByFlynetId(flynetProfile.id);
+  } catch (error) {
+    trace.onLookupFailed?.(classifyFlynetUserResolutionError(error));
+    throw error;
+  }
+  trace.onLookupFound?.(Boolean(user));
 
   if (!user) {
+    trace.onCreateStarted?.();
     const newId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    user = await db.createUser({
-      id: newId,
-      displayName: flynetProfile.displayName || flynetProfile.name || `Blackbird Member #${flynetProfile.id.slice(-4)}`,
-      flynetUserId: flynetProfile.id,
-      avatarUrl: flynetProfile.avatarUrl || null,
-    });
+    try {
+      user = await db.createUser({
+        id: newId,
+        displayName: flynetProfile.displayName || flynetProfile.name || `Blackbird Member #${flynetProfile.id.slice(-4)}`,
+        flynetUserId: flynetProfile.id,
+        avatarUrl: flynetProfile.avatarUrl || null,
+      });
+      trace.onCreateSucceeded?.();
+    } catch (error) {
+      trace.onCreateFailed?.(classifyFlynetUserResolutionError(error));
+      throw error;
+    }
   }
 
   return user;
 }
+

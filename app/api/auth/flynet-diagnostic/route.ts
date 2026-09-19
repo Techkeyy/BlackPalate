@@ -19,6 +19,11 @@ export async function GET(req: Request) {
   const result = accessToken
     ? await flynetMemberFetch<Record<string, unknown>>(accessToken, FLYNET_MEMBER_PATHS.profile)
     : null;
+  const profile = result?.ok && result.data && typeof result.data === 'object' && !Array.isArray(result.data)
+    ? result.data
+    : null;
+  const topLevelKeys = profile ? Object.keys(profile).sort() : [];
+  const idPresent = Boolean(profile && typeof profile.id === 'string' && profile.id.length > 0);
 
   return NextResponse.json(
     {
@@ -29,12 +34,10 @@ export async function GET(req: Request) {
       status: result?.status ?? null,
       authError: result?.authError ?? 'unknown',
       bodyPresent: result?.bodyPresent ?? false,
-      profileResolved: Boolean(
-        result?.ok &&
-          result.data &&
-          typeof result.data.id === 'string' &&
-          result.data.id.length > 0
-      ),
+      profileResolved: idPresent,
+      topLevelKeys,
+      idFieldUsed: 'id',
+      idPresent,
     },
     {
       headers: {
@@ -44,3 +47,5 @@ export async function GET(req: Request) {
     }
   );
 }
+
+
