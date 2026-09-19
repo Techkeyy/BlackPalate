@@ -40,9 +40,11 @@ All credential-independent flows, full-dark visual system, reactive motion, and 
   7. *Review & Publish* (Summary review with AI assistance)
 - **Intentionally Omitted**: Cluttered crypto/token speculation charts, generic multi-column white cards, and distracting gamified visual noise.
 
-### 2. Full-Bleed Dark Hero with Latest Downloaded Image
+### 2. Full-Bleed Dark Hero with Extended Length & Sourced Asset
 - **Image Sourced**: `C:\Users\HomePC\Downloads\727a2da7a0dae3be5d55efe7e1c194b1.jpg` (Chef plating culinary tasting dish), safely mirrored to `public/images/blackpalate-hero.jpg`.
-- **Hero Presentation**: Full viewport bleed with radial gradient vignette (`from-black/40 via-black/80 to-[#080808]`), editorial typography (*"Get paid to shape what restaurants serve next."*), and dual action CTAs (*Explore Tasting Opportunities*, *Create Research Mission*).
+- **Cinematic Height & Focal Framing**: Extended hero height to `clamp(780px, 120svh, 130svh)` with `objectPosition: 'center 22%'`, ensuring the chef's delicate plating action is fully visible.
+- **Top-Weighted Text & Extended Deep Fade**: Foreground copy sits gracefully in the upper 40% (`padding: clamp(110px, 15vh, 150px) 24px clamp(160px, 24vh, 280px)`), allowing the visual storytelling to breathe downward before melting smoothly into the `#080808` background via a multi-stage linear gradient.
+- **Hero Presentation**: Full viewport bleed with triple-layered ambient overlays (navbar protection, soft center vignette, deep bottom fade), editorial typography (*"Get paid to shape what restaurants serve next."*), and dual action CTAs.
 
 ### 3. Dark Visual System & Culinary Aesthetics
 - **Color Palette**:
