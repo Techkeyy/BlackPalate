@@ -18,10 +18,15 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 ---
 
 ## Current Status
-**DIRECTIVE 002A COMPLETE — PRODUCT EXPERIENCE & PERSISTENCE OPERATIONAL WHILE AWAITING BLACKBIRD APPROVAL**
+**DIRECTIVE 002B COMPLETE — TRUTHFUL PRODUCT HARDENING & FAIL-CLOSED ENFORCEMENT OPERATIONAL**
 
 Flynet Maker account status: **BLOCKED / AWAITING BLACKBIRD ADMIN APPROVAL**.
-All credential-independent product flows, database persistence, sensory feedback pipelines, AI drafting/synthesis, responsive UI views, and test suites are built, verified, and deployed.
+All credential-independent flows have been hardened to strictly fail closed:
+- **No In-Memory Production Shortcuts**: Production fails closed with `DATABASE_UNAVAILABLE` unless `DATABASE_URL` is configured.
+- **No Identity Spoofing**: Removed `?userId=...` query param overrides; user identity is derived strictly from server-verified session cookies.
+- **No Qualification Bypasses**: Removed `forcePass` parameters; applications fail closed (`HTTP 503 FLYNET_UNAVAILABLE`) pending live Flynet credentials.
+- **Strict Feedback & Reward Boundaries**: Feedback submissions verify session ownership, campaign matching, and attendance; reward receipts use deterministic idempotency key format `blackpalate:reward:<applicationId>`.
+- **Transparent AI Badging & Truthful Copy**: AI drafts and syntheses carry explicit `{ mode: 'ai' | 'template', provider }` metadata and UI badges. Seed records are marked with `DEMO` badges.
 
 ---
 
