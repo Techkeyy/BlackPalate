@@ -105,6 +105,14 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 - **Prod proof**: `GET /api/auth/get-session` → 200 `null` (handler live, fail-closed); old `/api/auth/neon/*` → 404; `/api/auth/login` still 400 fail-closed (Flynet blocked).
 - Restaurant Google sign-in UAT still requires human (provider + trusted origin console state unverified). Do NOT call finished.
 
+## Directive 002H Live Flynet Proofs (2026-09-19)
+- **Env presence**: CLIENT_ID_PRESENT=true, CLIENT_SECRET_PRESENT=true, API_KEY_PRESENT=true, REDIRECT_URI_PRESENT=true, effective server ENV=staging. Key prefix observed `fly_live…` (live-typed) against staging audience — mismatch flagged, then tested on BOTH audiences.
+- **Doctor**: fixed to load `.env.local` (was falsely reporting MISSING); now truthful. Staging API reachable (403 unauth challenge, expected).
+- **Proof A (discovery)**: FAIL — real server path `BlackPalate → Flynet` returns 401 `invalid_api_key` ("Invalid or revoked API key") on staging AND production audiences. No mock involved; public responses sanitized (`code:UNAUTHORIZED`), detail server-logged only.
+- **Proof B (balance)**: FAIL — same 401, nothing issued. BALANCE_CALL = FAIL.
+- **OAuth readiness**: redirect URI present and canonical; scopes minimal (`read:profile read:user_checkins`, no custom override); PKCE/state HttpOnly flow verified in code. Prod `/api/auth/login` → 307 to `https://api.staging.blackbird.xyz/oauth/authorize` (Vercel env applied, latest deploy serving). No owner authorization performed.
+- **Needed from owner**: valid Flynet API key for the intended environment (current value rejected as invalid/revoked on both), or confirm production-vs-staging intent. Do NOT call finished.
+
 ## Next Recommended Action
 Awaiting Blackbird admin approval in Flynet Make. Once approved:
 1. Generate Staging API key (`fly_test_...`) and OAuth Client ID / Secret with redirect URI `https://blackpalate.vercel.app/api/auth/callback`.
