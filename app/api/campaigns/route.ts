@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
-import { verifyOperatorSession } from '@/lib/auth';
+import { getAuthenticatedOperator } from '@/lib/auth';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   try {
@@ -28,33 +30,17 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1. Authenticate operator session
-    const cookieHeader = req.headers.get('cookie') || '';
-    const cookies = Object.fromEntries(
-      cookieHeader.split(';').map(c => {
-        const [k, v] = c.trim().split('=');
-        return [k, decodeURIComponent(v || '')];
-      })
-    );
-
-    const operatorToken = cookies['bp_operator_token'];
-    if (!operatorToken) {
+    // 1. Authenticate operator via real Neon Auth session
+    const operatorCtx = await getAuthenticatedOperator(req);
+    if (!operatorCtx) {
       return NextResponse.json(
         { ok: false, error: 'UNAUTHORIZED', message: 'Sign-in required to create tasting campaigns.' },
         { status: 401 }
       );
     }
 
-    const session = verifyOperatorSession(operatorToken);
-    if (!session) {
-      return NextResponse.json(
-        { ok: false, error: 'INVALID_SESSION', message: 'Operator session expired or invalid.' },
-        { status: 401 }
-      );
-    }
-
     // 2. Enforce RestaurantMembership authorization (prevent cross-restaurant mutation)
-    const membership = await db.getMembership(session.userId, body.restaurantId);
+    const membership = await db.getMembership(operatorCtx.user.id, body.restaurantId);
     if (!membership) {
       return NextResponse.json(
         {
@@ -88,7 +74,7 @@ export async function POST(req: Request) {
       maxSlots: Number(body.maxSlots) || 10,
       status: body.status || 'ACTIVE',
       isDemo: false,
-      creatorKey: session.userId,
+      creatorKey: operatorCtx.user.id,
       feedbackQuestions: body.feedbackQuestions || [],
     });
 

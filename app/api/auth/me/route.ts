@@ -1,9 +1,46 @@
 import { NextResponse } from 'next/server';
 import { createFlynetMemberClient, normalizeFlynetError } from '@/lib/flynet';
-import { verifyOperatorSession, resolveOrCreateFlynetDinerUser } from '@/lib/auth';
+import { neonAuth, resolveOrCreateRestaurantUser, resolveOrCreateFlynetDinerUser } from '@/lib/auth';
 import { db } from '@/lib/db/repository';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: Request) {
+  // Check 1: Real Managed Neon Auth Session
+  try {
+    const sessionRes = await neonAuth.getSession({
+      headers: req.headers,
+    } as any).catch(() => null);
+
+    const sessionData = (sessionRes as any)?.data || sessionRes;
+    const neonUser = sessionData?.user || sessionData?.session?.user;
+
+    if (neonUser && neonUser.id) {
+      const user = await resolveOrCreateRestaurantUser({
+        id: neonUser.id,
+        email: neonUser.email,
+        name: neonUser.name || neonUser.displayName,
+        avatarUrl: neonUser.image || neonUser.avatarUrl,
+      });
+
+      const memberships = await db.getMembershipsByUserId(user.id);
+      const restaurants = await Promise.all(
+        memberships.map(m => db.getRestaurantById(m.restaurantId))
+      );
+
+      return NextResponse.json({
+        authenticated: true,
+        role: 'RESTAURANT',
+        user,
+        memberships,
+        workspaces: restaurants.filter(Boolean),
+      });
+    }
+  } catch (err) {
+    console.warn('[auth/me] Neon Auth session lookup error:', err);
+  }
+
+  // Check 2: Flynet Diner OAuth Session
   const cookieHeader = req.headers.get('cookie') || '';
   const cookies = Object.fromEntries(
     cookieHeader.split(';').map(c => {
@@ -12,34 +49,7 @@ export async function GET(req: Request) {
     })
   );
 
-  const operatorToken = cookies['bp_operator_token'];
   const accessToken = cookies['bp_access_token'];
-
-  // Check 1: Restaurant Operator Session
-  if (operatorToken) {
-    const operatorPayload = verifyOperatorSession(operatorToken);
-    if (operatorPayload) {
-      const user = await db.getUserById(operatorPayload.userId);
-      const memberships = await db.getMembershipsByUserId(operatorPayload.userId);
-      const restaurants = await Promise.all(
-        memberships.map(m => db.getRestaurantById(m.restaurantId))
-      );
-
-      return NextResponse.json({
-        authenticated: true,
-        role: 'RESTAURANT',
-        user: user || {
-          id: operatorPayload.userId,
-          displayName: operatorPayload.displayName,
-          email: operatorPayload.email,
-        },
-        memberships,
-        workspaces: restaurants.filter(Boolean),
-      });
-    }
-  }
-
-  // Check 2: Flynet Diner Session
   if (accessToken) {
     const member = createFlynetMemberClient(accessToken);
     try {

@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { createFlynetMemberClient } from '@/lib/flynet';
-import { verifyOperatorSession, resolveOrCreateFlynetDinerUser } from '@/lib/auth';
+import { getAuthenticatedOperator, resolveOrCreateFlynetDinerUser } from '@/lib/auth';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   try {
@@ -13,7 +15,6 @@ export async function GET(req: Request) {
       })
     );
     const accessToken = cookies['bp_access_token'];
-    const operatorToken = cookies['bp_operator_token'];
 
     let userId: string | null = null;
 
@@ -29,10 +30,10 @@ export async function GET(req: Request) {
       } catch {
         userId = null;
       }
-    } else if (operatorToken) {
-      const operatorPayload = verifyOperatorSession(operatorToken);
-      if (operatorPayload) {
-        userId = operatorPayload.userId;
+    } else {
+      const operatorCtx = await getAuthenticatedOperator(req);
+      if (operatorCtx) {
+        userId = operatorCtx.user.id;
       }
     }
 

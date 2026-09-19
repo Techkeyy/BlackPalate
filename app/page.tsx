@@ -218,34 +218,20 @@ export default function BlackPalateApp() {
     }
   }
 
-  // Handle Restaurant Operator Login (Google Managed Auth)
-  async function handleOperatorLogin(email = 'chef.marco@gramercy.demo', name = 'Chef Marco / Operator') {
+  // Handle Restaurant Operator Login (Managed Neon Auth)
+  async function handleOperatorLogin() {
     try {
-      const res = await fetch('/api/auth/restaurant/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          displayName: name,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setStatusBanner({
-          type: 'success',
-          text: `Signed in as ${data.user.displayName}. Restaurant workspace active.`,
-        });
-        await loadData();
-      }
+      const callback = typeof window !== 'undefined' ? window.location.origin : '';
+      window.location.href = `/api/auth/neon/sign-in/social?provider=google&callbackURL=${encodeURIComponent(callback)}`;
     } catch (err: any) {
-      setStatusBanner({ type: 'warning', text: `Login failed: ${err.message}` });
+      setStatusBanner({ type: 'warning', text: `Sign in error: ${err.message}` });
     }
   }
 
   // Handle Logout
   async function handleLogout() {
     try {
-      await fetch('/api/auth/restaurant/logout', { method: 'POST' });
+      await fetch('/api/auth/neon/sign-out', { method: 'POST' }).catch(() => null);
       setIsAuthenticated(false);
       setAuthRole(null);
       setSessionUser(null);
@@ -754,7 +740,7 @@ export default function BlackPalateApp() {
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button
-                  onClick={() => handleOperatorLogin('chef.marco@gramercy.demo', 'Chef Marco / Operator')}
+                  onClick={() => handleOperatorLogin()}
                   style={{
                     padding: '6px 12px',
                     borderRadius: '6px',
