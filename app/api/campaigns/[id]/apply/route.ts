@@ -32,13 +32,17 @@ export async function POST(
     const internalUser = identity.user;
 
     // 2. Build deterministic qualification rules
-    const rules: QualificationRule[] = [
-      {
+    const rules: QualificationRule[] = [];
+
+    // A zero threshold means the campaign does not require prior dining
+    // history. This is required for first-time-at-this-venue campaigns.
+    if (campaign.minTotalCheckIns > 0) {
+      rules.push({
         type: 'MIN_TOTAL_CHECKINS',
         threshold: campaign.minTotalCheckIns,
         description: `At least ${campaign.minTotalCheckIns} verified dining check-in(s)`,
-      },
-    ];
+      });
+    }
 
     if (campaign.minCuisineVisits > 0 && campaign.targetCuisines.length > 0) {
       rules.push({
@@ -81,7 +85,10 @@ export async function POST(
       status: 'QUALIFIED',
       qualificationProof: {
         totalCheckIns: checkIns.length,
-        cuisineVisits: 0,
+        cuisineVisits: Number(
+          evalResult.ruleEvaluations.find(r => r.rule.type === 'MIN_CUISINE_VISITS')?.actualValue || 0
+        ),
+        distinctVenues: evalResult.distinctVenues,
         isNewToVenue: !checkIns.some((c: any) => c.location?.restaurant?.id === campaign.restaurantId),
         qualifiedRuleSummary: evalResult.ruleEvaluations.map(r => r.rule.description),
       },

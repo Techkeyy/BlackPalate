@@ -29,7 +29,7 @@ export async function GET(req: Request) {
     const userApps = await db.getUserApplications(userId);
 
     const upcoming = userApps.filter(
-      a => a.status === 'QUALIFIED' || a.status === 'JOINED' || a.status === 'ATTENDANCE_PENDING'
+      a => a.status === 'APPLIED' || a.status === 'QUALIFIED' || a.status === 'JOINED' || a.status === 'CONFIRMED' || a.status === 'ATTENDANCE_PENDING'
     );
     const needsAction = userApps.filter(a => a.status === 'ATTENDANCE_VERIFIED');
     const completed = userApps.filter(

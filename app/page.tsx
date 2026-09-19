@@ -92,10 +92,27 @@ interface Application {
   qualificationProof?: {
     totalCheckIns: number;
     cuisineVisits: number;
+    distinctVenues?: number;
     isNewToVenue: boolean;
     qualifiedRuleSummary: string[];
   };
   campaign?: Campaign;
+}
+
+interface RestaurantApplication {
+  id: string;
+  campaignId: string;
+  status: string;
+  createdAt: string;
+  diner: { displayName: string; avatar?: string | null };
+  qualification: { qualified: boolean; ruleSummary: string[] };
+  verifiedHistory: {
+    totalCheckIns: number;
+    cuisineVisits: number;
+    distinctVenues: number;
+    isNewToVenue: boolean;
+    summary: string;
+  };
 }
 
 export default function BlackPalateApp() {
@@ -191,8 +208,11 @@ export default function BlackPalateApp() {
   const [selectedStudioCampaign, setSelectedStudioCampaign] = useState<Campaign | null>(null);
   const [studioSynthesis, setStudioSynthesis] = useState<any>(null);
   const [studioSubmissions, setStudioSubmissions] = useState<any[]>([]);
+  const [studioApplications, setStudioApplications] = useState<RestaurantApplication[]>([]);
   const [synthesisMode, setSynthesisMode] = useState<string | null>(null);
   const [loadingSynthesis, setLoadingSynthesis] = useState(false);
+  const [loadingStudioApplications, setLoadingStudioApplications] = useState(false);
+  const [confirmingApplicationId, setConfirmingApplicationId] = useState<string | null>(null);
 
   // Live Network Demo (observational only — never mutates marketplace state)
   const [liveFeed, setLiveFeed] = useState<{
@@ -369,9 +389,6 @@ export default function BlackPalateApp() {
       const campData = await campRes.json();
       if (campData.ok && campData.campaigns) {
         setCampaigns(campData.campaigns);
-        if (campData.campaigns.length > 0 && !selectedStudioCampaign) {
-          setSelectedStudioCampaign(campData.campaigns[0]);
-        }
       } else if (!campData.ok) {
         setFetchError(mapErrorToUserMessage(campData, 'fetch_data'));
       }
@@ -831,8 +848,50 @@ export default function BlackPalateApp() {
     }
   }
 
+  async function loadStudioApplications(camp: Campaign) {
+    setLoadingStudioApplications(true);
+    try {
+      const res = await fetch(`/api/restaurant/campaigns/${camp.id}/applications`);
+      const data = await res.json();
+      if (data.ok) {
+        setStudioApplications(data.applications || []);
+      } else {
+        setStudioApplications([]);
+      }
+    } catch (err) {
+      console.error('Applicant load error:', err);
+      setStudioApplications([]);
+    } finally {
+      setLoadingStudioApplications(false);
+    }
+  }
+
+  async function handleConfirmApplicant(applicationId: string) {
+    setConfirmingApplicationId(applicationId);
+    try {
+      const res = await fetch(`/api/restaurant/applications/${applicationId}/confirm`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setStatusBanner({ type: 'success', text: 'Applicant confirmed.' });
+        if (selectedStudioCampaign) await loadStudioApplications(selectedStudioCampaign);
+        await loadData();
+      } else {
+        const userErr = mapErrorToUserMessage(data, 'fetch_data');
+        setStatusBanner({ type: 'warning', text: userErr.message });
+      }
+    } catch (err: any) {
+      const userErr = mapErrorToUserMessage(err, 'fetch_data');
+      setStatusBanner({ type: 'warning', text: userErr.message });
+    } finally {
+      setConfirmingApplicationId(null);
+    }
+  }
+
   // Load Studio Synthesis for a selected campaign
   async function loadStudioSynthesis(camp: Campaign) {
+    loadStudioApplications(camp);
     setSelectedStudioCampaign(camp);
     setLoadingSynthesis(true);
     try {
@@ -875,6 +934,22 @@ export default function BlackPalateApp() {
 
     return matchesSearch && matchesCuisine;
   });
+
+  const studioCampaigns =
+    authRole === 'RESTAURANT' && activeWorkspace
+      ? campaigns.filter(camp => camp.restaurantId === activeWorkspace.id)
+      : [];
+
+  useEffect(() => {
+    if (authRole !== 'RESTAURANT') return;
+    const selectedStillBelongs = selectedStudioCampaign && studioCampaigns.some(
+      camp => camp.id === selectedStudioCampaign.id
+    );
+    if (!selectedStillBelongs) {
+      setSelectedStudioCampaign(studioCampaigns[0] || null);
+      setStudioApplications([]);
+    }
+  }, [authRole, activeWorkspace?.id, campaigns, selectedStudioCampaign?.id]);
 
   return (
     <div
@@ -2907,10 +2982,17 @@ export default function BlackPalateApp() {
                     lineHeight: '1.6',
                   }}
                 >
-                  <li>
-                    Minimum Total Visits:{' '}
-                    <strong>{selectedTasting.minTotalCheckIns} Blackbird check-in(s)</strong>
-                  </li>
+                  {selectedTasting.minTotalCheckIns > 0 && (
+                    <li>
+                      Minimum Total Visits:{' '}
+                      <strong>{selectedTasting.minTotalCheckIns} Blackbird check-in(s)</strong>
+                    </li>
+                  )}
+                  {selectedTasting.minTotalCheckIns === 0 && selectedTasting.mustBeNewToVenue && (
+                    <li>
+                      History Requirement: <strong>No prior verified visits to this venue</strong>
+                    </li>
+                  )}
                   {selectedTasting.minCuisineVisits > 0 && (
                     <li>
                       Minimum Cuisine Visits:{' '}
@@ -2985,7 +3067,7 @@ export default function BlackPalateApp() {
                 >
                   {isJoiningTasting
                     ? 'Evaluating Dining History...'
-                    : 'Verification Awaiting Flynet Approval'}
+                    : 'Apply to this tasting'}
                 </InteractiveButton>
                 <InteractiveButton
                   onClick={() => {
@@ -3247,36 +3329,42 @@ export default function BlackPalateApp() {
                       </div>
 
                       <div>
-                        {isCompleted ? (
-                          <div style={{ textAlign: 'right' }}>
-                            <span
-                              style={{
-                                fontSize: '13px',
-                                color: rewardInfo.color,
-                                fontWeight: '700',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                justifyContent: 'flex-end',
-                              }}
-                            >
-                              <CheckCircle2 size={15} color={rewardInfo.color} />
-                              {rewardInfo.label}
-                            </span>
-                            <span style={{ fontSize: '11px', color: '#78716C', display: 'block', maxWidth: '240px' }}>
-                              {rewardInfo.description}
-                            </span>
-                          </div>
-                        ) : (
-                          <InteractiveButton
-                            onClick={() => setActiveFeedbackCampaign(camp)}
-                            variant="primary"
-                          >
-                            Submit Feedback
-                            <ArrowRight size={15} />
-                          </InteractiveButton>
-                        )}
+                    {isCompleted ? (
+                      <div style={{ textAlign: 'right' }}>
+                        <span
+                          style={{
+                            fontSize: '13px',
+                            color: rewardInfo.color,
+                            fontWeight: '700',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            justifyContent: 'flex-end',
+                          }}
+                        >
+                          <CheckCircle2 size={15} color={rewardInfo.color} />
+                          {rewardInfo.label}
+                        </span>
+                        <span style={{ fontSize: '11px', color: '#78716C', display: 'block', maxWidth: '240px' }}>
+                          {rewardInfo.description}
+                        </span>
                       </div>
+                    ) : app.status === 'ATTENDANCE_VERIFIED' ? (
+                      <InteractiveButton
+                        onClick={() => setActiveFeedbackCampaign(camp)}
+                        variant="primary"
+                      >
+                        Submit Feedback
+                        <ArrowRight size={15} />
+                      </InteractiveButton>
+                    ) : (
+                      <span style={{ color: '#A8A29E', fontSize: '12px', textAlign: 'right', display: 'block', maxWidth: '190px' }}>
+                        {app.status === 'CONFIRMED' || app.status === 'ATTENDANCE_PENDING'
+                          ? 'Awaiting verified attendance'
+                          : 'Awaiting restaurant confirmation'}
+                      </span>
+                    )}
+                  </div>
                     </div>
                   );
                 })}
@@ -4160,7 +4248,7 @@ export default function BlackPalateApp() {
                       </label>
                       <input
                         type="number"
-                        min="1"
+                        min="0"
                         max="10"
                         value={newCampaign.minTotalCheckIns}
                         onChange={(e) =>
@@ -4233,6 +4321,14 @@ export default function BlackPalateApp() {
                           setNewCampaign({
                             ...newCampaign,
                             mustBeNewToVenue: e.target.checked,
+                            minTotalCheckIns:
+                              e.target.checked && newCampaign.minTotalCheckIns === 2
+                                ? 0
+                                : newCampaign.minTotalCheckIns,
+                            minCuisineVisits:
+                              e.target.checked && newCampaign.minCuisineVisits === 1
+                                ? 0
+                                : newCampaign.minCuisineVisits,
                           })
                         }
                       />
@@ -4776,7 +4872,7 @@ export default function BlackPalateApp() {
 
             {fetchError ? (
               <CalloutAlert error={fetchError} onAction={loadData} />
-            ) : campaigns.length === 0 ? (
+            ) : studioCampaigns.length === 0 ? (
               <div
                 style={{
                   textAlign: 'center',
@@ -4843,7 +4939,7 @@ export default function BlackPalateApp() {
                   gap: '8px',
                 }}
               >
-                {campaigns.map((camp) => {
+                {studioCampaigns.map((camp) => {
                   const isSelected = selectedStudioCampaign?.id === camp.id;
                   return (
                     <button
@@ -4957,6 +5053,67 @@ export default function BlackPalateApp() {
                       >
                         Mode: {synthesisMode}
                       </span>
+                    )}
+                  </div>
+
+                  <div
+                    style={{
+                      marginBottom: '28px',
+                      paddingBottom: '24px',
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <h4 style={{ margin: 0, fontSize: '16px', color: '#F5F5F4' }}>Applicants</h4>
+                      <span style={{ fontSize: '11px', color: '#78716C' }}>Live database records</span>
+                    </div>
+                    {loadingStudioApplications ? (
+                      <div style={{ color: '#A8A29E', fontSize: '13px' }}>Loading applicants...</div>
+                    ) : studioApplications.length === 0 ? (
+                      <div style={{ color: '#78716C', fontSize: '13px' }}>No applications recorded for this campaign yet.</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {studioApplications.map(application => {
+                          const canConfirm = application.status === 'APPLIED' || application.status === 'QUALIFIED';
+                          return (
+                            <div
+                              key={application.id}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: '16px',
+                                padding: '14px 16px',
+                                backgroundColor: '#181818',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(255, 255, 255, 0.06)',
+                              }}
+                            >
+                              <div>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                                  <strong style={{ color: '#F5F5F4', fontSize: '13px' }}>{application.diner.displayName}</strong>
+                                  <span style={{ color: '#A7F3D0', fontSize: '11px', fontWeight: 700 }}>{application.status}</span>
+                                </div>
+                                <div style={{ color: '#A8A29E', fontSize: '12px' }}>{application.verifiedHistory.summary}</div>
+                                <div style={{ color: '#78716C', fontSize: '11px', marginTop: '3px' }}>
+                                  Applied {new Date(application.createdAt).toLocaleString()}
+                                </div>
+                              </div>
+                              {canConfirm ? (
+                                <InteractiveButton
+                                  onClick={() => handleConfirmApplicant(application.id)}
+                                  disabled={confirmingApplicationId === application.id}
+                                  variant="primary"
+                                >
+                                  {confirmingApplicationId === application.id ? 'Confirming...' : 'Confirm Applicant'}
+                                </InteractiveButton>
+                              ) : (
+                                <span style={{ color: '#78716C', fontSize: '12px' }}>{application.status}</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
 

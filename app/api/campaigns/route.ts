@@ -5,6 +5,11 @@ import { safeError, safeCatch } from '@/lib/api-errors';
 
 export const dynamic = 'force-dynamic';
 
+function parseNonNegativeInteger(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -41,6 +46,7 @@ export async function POST(req: Request) {
     }
 
     // 3. Create persistent campaign
+    const mustBeNewToVenue = Boolean(body.mustBeNewToVenue);
     const campaign = await db.createCampaign({
       title: body.title,
       description: body.description || '',
@@ -53,10 +59,10 @@ export async function POST(req: Request) {
       timing: body.timing || 'Flexible schedule',
       timeCommitment: body.timeCommitment || '45 minutes',
       targetCuisines: body.targetCuisines || [],
-      minTotalCheckIns: Number(body.minTotalCheckIns) || 1,
-      minDistinctVenues: Number(body.minDistinctVenues) || 0,
-      minCuisineVisits: Number(body.minCuisineVisits) || 0,
-      mustBeNewToVenue: Boolean(body.mustBeNewToVenue),
+      minTotalCheckIns: parseNonNegativeInteger(body.minTotalCheckIns, mustBeNewToVenue ? 0 : 1),
+      minDistinctVenues: parseNonNegativeInteger(body.minDistinctVenues, 0),
+      minCuisineVisits: parseNonNegativeInteger(body.minCuisineVisits, 0),
+      mustBeNewToVenue,
       rewardFly: String(body.rewardFly || '10'),
       rewardFlyWei: body.rewardFlyWei || `${BigInt(Number(body.rewardFly || 10)) * BigInt(10 ** 18)}`,
       maxSlots: Number(body.maxSlots) || 10,

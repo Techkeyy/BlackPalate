@@ -1,6 +1,7 @@
 import { createNeonAuth } from '@neondatabase/auth/next/server';
 import { db } from './db/repository';
 import { User, RestaurantMembership } from './db/types';
+import { logOAuthPhase } from './auth/oauth-diagnostics';
 
 const isProd = process.env.NODE_ENV === 'production';
 const neonAuthBaseUrl = process.env.NEON_AUTH_BASE_URL;
@@ -68,6 +69,7 @@ function classifyFlynetUserResolutionError(error: unknown): FlynetUserResolution
  * Does NOT accept arbitrary client-provided user IDs, emails, or fake credentials.
  */
 export async function getAuthenticatedOperator(req: Request): Promise<AuthenticatedOperatorContext | null> {
+  let neonSessionPresent = false;
   try {
     // 1. Validate session with Neon Auth
     const sessionRes = await neonAuth.getSession({
@@ -76,13 +78,18 @@ export async function getAuthenticatedOperator(req: Request): Promise<Authentica
 
     const sessionData = (sessionRes as any)?.data || sessionRes;
     const neonUser = sessionData?.user || sessionData?.session?.user;
+    neonSessionPresent = Boolean(neonUser?.id);
 
     if (!neonUser || !neonUser.id) {
       // Also inspect direct Neon session cookie if present
       const cookieHeader = req.headers.get('cookie') || '';
-      if (!cookieHeader.includes('neon_auth') && !cookieHeader.includes('better-auth')) {
-        return null;
-      }
+      logOAuthPhase('restaurant_auth_resolution', {
+        neonSessionPresent: false,
+        operatorResolved: false,
+        roleRestaurant: false,
+        membershipFound: false,
+        workspaceFound: false,
+      });
       return null;
     }
 
@@ -97,12 +104,27 @@ export async function getAuthenticatedOperator(req: Request): Promise<Authentica
     // 3. Load legitimate memberships from PostgreSQL
     const memberships = await db.getMembershipsByUserId(user.id);
 
+    logOAuthPhase('restaurant_auth_resolution', {
+      neonSessionPresent: true,
+      operatorResolved: true,
+      roleRestaurant: true,
+      membershipFound: memberships.length > 0,
+      workspaceFound: memberships.length > 0,
+    });
+
     return {
       user,
       neonAuthUserId: neonUser.id,
       memberships,
     };
   } catch (err) {
+    logOAuthPhase('restaurant_auth_resolution', {
+      neonSessionPresent,
+      operatorResolved: false,
+      roleRestaurant: false,
+      membershipFound: false,
+      workspaceFound: false,
+    });
     console.warn('[Neon Auth] Session verification error:', err);
     return null;
   }
