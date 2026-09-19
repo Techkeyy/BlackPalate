@@ -18,11 +18,10 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 ---
 
 ## Current Status
-**HOLD / CONTINUE ORDER ACTIVE — FLYNET MAKER BLOCKED / AWAITING BLACKBIRD ADMIN APPROVAL**
+**DIRECTIVE 002A COMPLETE — PRODUCT EXPERIENCE & PERSISTENCE OPERATIONAL WHILE AWAITING BLACKBIRD APPROVAL**
 
-The human owner has confirmed the Flynet Make UI displays *"Your account is awaiting approval"* and app creation/API key minting are disabled until Blackbird admin approval.
-
-All credential-independent product foundations, relational persistence, AI drafting/synthesis, and UI marketplace flows have been constructed, tested, and deployed to production.
+Flynet Maker account status: **BLOCKED / AWAITING BLACKBIRD ADMIN APPROVAL**.
+All credential-independent product flows, database persistence, sensory feedback pipelines, AI drafting/synthesis, responsive UI views, and test suites are built, verified, and deployed.
 
 ---
 
@@ -31,55 +30,46 @@ All credential-independent product foundations, relational persistence, AI draft
 - **Toolchain**: Next.js 14.2.14, React 18.3.1, `@flynetdev/core` (0.8.1), `@neondatabase/serverless`, TypeScript 5.6.2.
 - **Production URL**: `https://blackpalate.vercel.app`
 - **Public GitHub Repo**: `https://github.com/Techkeyy/BlackPalate`
-- **Build Status**: `npm run build` PASS (14 static and dynamic routes compiled).
-- **Unit Tests**:
-  - `node lib/qualification.test.mjs` PASS (5/5 qualification engine test cases).
-  - `node lib/campaign.test.mjs` PASS (4/4 marketplace lifecycle & sensory score tests).
-- **Doctor Script**: `npm run doctor` PASS (Audits env presence, staging connectivity verified).
-- **Secret Guardrail**: `ACTIVE` (`.claude/settings.json` denies reads to `/.env*`).
+- **Build Status**: `npm run build` PASS (15 static and dynamic routes compiled).
+- **Automated Test Suites**:
+  - `node lib/campaign.test.mjs` PASS (10/10 core product, lifecycle, capacity, and duplicate prevention tests).
+  - `node lib/qualification.test.mjs` PASS (5/5 deterministic qualification engine test cases).
+  - **Total Tests**: 15/15 PASS.
+- **Doctor Script**: `npm run doctor` PASS.
+- **Secret Guardrail**: `ACTIVE` (`.claude/settings.json`).
 
 ---
 
-## Work Completed While Blocked on Flynet Approval
-1. **Relational Persistence Architecture & Schema**:
-   - Designed PostgreSQL DDL schema (`lib/db/schema.sql`) and Prisma schema (`prisma/schema.prisma`) for `restaurants`, `campaigns`, `applications`, `feedback_submissions`, `reward_receipts`, and `synthesis_reports`.
-   - Created typed database repository layer (`lib/db/repository.ts`) with zero-config in-memory fallback and seed tasting campaigns so the platform is immediately operational locally and in production.
-2. **Campaign Lifecycle API Routes**:
-   - `GET /api/campaigns` & `POST /api/campaigns`: Campaign registry and capacity management.
-   - `GET /api/campaigns/[id]`: Detailed tasting job with research questions and submission counters.
-   - `POST /api/campaigns/[id]/apply`: Deterministic qualification evaluator verifying diner dining history.
-   - `POST /api/campaigns/[id]/submit-feedback`: Structured sensory feedback submission with idempotency keys.
-   - `GET /api/campaigns/[id]/synthesis`: Executive AI culinary research report generation.
-3. **AI Culinary Engine (`lib/ai.ts`)**:
-   - **AI Campaign Architect**: Formulates high-signal tasting recruitments, target dining criteria, and structured questions from raw dish concepts.
-   - **AI Result Synthesis**: Analyzes sensory submissions across diner behavioral cohorts and synthesizes executive chef recommendations.
-4. **Complete Responsive Product UI (`app/page.tsx`)**:
-   - **Diner Marketplace**: Browse open tastings, check behavioral qualification in 1 click, enroll, and submit structured sensory feedback.
-   - **Restaurant Studio**: AI-assisted campaign drafting, seat management, and interactive AI synthesis intel.
-   - **Diagnostics & Capability Matrix**: Authentic system state monitor displaying real Flynet approval status.
-5. **Verified Public Deployment**:
-   - Deployed and live on Vercel at `https://blackpalate.vercel.app`.
+## Design System & UX Standards (Applied from Local Skills)
+- **Visual Identity**: Modern culinary research marketplace. Editorial typography, warm culinary amber accents (`#F59E0B`, `#D97706`), deep obsidian slate surfaces (`#0F172A`, `#0B0F17`), accessible high-contrast text, clear qualification badges.
+- **Tone**: Trustworthy, food/hospitality-oriented, contemporary. No crypto/DeFi clutter.
+- **Responsive Behavior**: Mobile and desktop friendly layouts with tap-friendly controls and accessible states.
 
 ---
 
-## Exact Flynet Tasks Waiting on Approval
-1. **Flynet Make App Creation**: Provision `BlackPalate` app with callback `https://blackpalate.vercel.app/api/auth/callback`.
-2. **Flynet Staging API Key**: Obtain `fly_test_...` key with `discovery`, `read:balance`, `write:rewards`.
-3. **Live OAuth Verification**: Execute PKCE authorization and exchange authorization code for member JWT tokens.
-4. **Live Check-in Correlation**: Query `GET /users/me/check_ins` and correlate with `GET /restaurants`.
-5. **Live Reward Issuance**: Execute `POST /issue_reward` to reward qualified completed tastings in real `$FLY`.
+## Pages & User Flows Implemented
+1. **Page 1 — Landing / Entry Flow**: Editorial hero explaining BlackPalate ("Get paid to shape what restaurants serve next"), value pillars, dual CTAs (*Find Tastings*, *Create a Tasting*).
+2. **Page 2 — Diner Discover (Marketplace)**: Real database-backed cards displaying tasting titles, restaurants, NYC neighborhoods, timing, available spots, $FLY rewards, and qualification summaries.
+3. **Page 3 — Tasting Detail**: Detailed view with research focus, time commitment, reward, deterministic qualification requirements, questions preview, and dynamic action states.
+4. **Page 4 — My Tastings (Diner Dashboard)**: Grouped into *Upcoming*, *Needs Action*, and *Completed* sessions with obvious next-step actions.
+5. **Page 5 — Restaurant Create Tasting (Campaign Builder)**: Human-labeled form supporting deterministic rules (min check-ins, cuisine visits, new-to-venue), capacity, rewards, timing, and custom questions.
+6. **Page 6 — AI Campaign Drafting**: Integrated AI assistant (`/api/ai/draft-campaign`) translating freeform dish concepts into campaign specifications and research questions.
+7. **Page 7 — Restaurant Campaign Dashboard**: Real campaign management, capacity tracking, privacy-minimized participant records, and attendance states.
+8. **Page 8 — Feedback Flow**: Focused structured questionnaire (ratings, scale, yes/no, choice, text notes) persisting to database with duplicate prevention.
+9. **Page 9 — Restaurant Results & AI Synthesis**: Executive consensus summary, flavor analysis, behavioral cohort trends, actionable chef recommendations, and raw submitted responses table.
+10. **Page 10 — System Diagnostics & State Matrix**: Authentic monitor reflecting Blackbird admin approval status.
 
 ---
 
 ## Truthful Capability Matrix
 
-| Capability / Component | Target / Route | Scope Required | Status | Blocker / Notes |
+| Capability / Component | Route / Module | Scope Required | Status | Blocker / Notes |
 |---|---|---|---|---|
 | **Public Host & Callback** | `https://blackpalate.vercel.app` | Vercel production | **INTEGRATION PROVEN** | Live & verified |
-| **Marketplace Persistence** | `lib/db/repository.ts` | PostgreSQL / Neon | **COMPONENT PROVEN** | Schema & repository active |
-| **Qualification Engine** | `lib/qualification.ts` | None (Pure logic) | **COMPONENT PROVEN** | 5/5 unit tests pass |
-| **Sensory Feedback & Scoring** | `lib/campaign.test.mjs` | None (Pure logic) | **COMPONENT PROVEN** | 4/4 unit tests pass |
-| **AI Campaign Architect & Synthesis** | `lib/ai.ts` | DeepSeek / OpenAI | **COMPONENT PROVEN** | Heuristic & LLM pipelines operational |
+| **Relational Persistence** | `lib/db/repository.ts` | PostgreSQL / Neon | **COMPONENT PROVEN** | Active with seed data & DB layer |
+| **Deterministic Qualification Engine** | `lib/qualification.ts` | Pure Logic | **COMPONENT PROVEN** | 5/5 unit tests pass |
+| **Product Lifecycle & Capacity Rules** | `lib/campaign.test.mjs` | Pure Logic / DB | **COMPONENT PROVEN** | 10/10 unit tests pass |
+| **AI Campaign Architect & Synthesis** | `lib/ai.ts` | DeepSeek / OpenAI | **COMPONENT PROVEN** | Operational with heuristic fallbacks |
 | **Flynet OAuth PKCE** | `/api/auth/login` + `/callback` | `NEXT_PUBLIC_FLYNET_CLIENT_ID` | **IMPLEMENTED / AWAITING APPROVAL** | Blocked on Flynet Make approval |
 | **Member Profile & Check-ins** | `/api/auth/me` | `read:profile read:user_checkins` | **IMPLEMENTED / AWAITING APPROVAL** | Blocked on Flynet Make approval |
 | **Restaurant Discovery** | `GET /restaurants` | `FLYNET_API_KEY` (`discovery`) | **IMPLEMENTED / AWAITING APPROVAL** | Blocked on Flynet Make approval |
@@ -88,9 +78,8 @@ All credential-independent product foundations, relational persistence, AI draft
 
 ---
 
-## Remaining Critical Path (Once Admin Approves)
-1. Human owner inputs credentials into `.env.local`.
-2. Run `npm run doctor` to verify presence.
-3. Run live capability proofs A through G.
-4. Promote capability matrix to **INTEGRATION PROVEN**.
-5. Record demo walkthrough and finalize README.
+## Next Recommended Action
+Awaiting Blackbird admin approval in Flynet Make. Once approved:
+1. Generate Staging API key (`fly_test_...`) and OAuth Client ID / Secret with redirect URI `https://blackpalate.vercel.app/api/auth/callback`.
+2. Input credentials into `.env.local`.
+3. Run `npm run doctor` and execute live capability proofs (Proofs A through G).
