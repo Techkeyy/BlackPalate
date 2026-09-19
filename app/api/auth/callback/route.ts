@@ -2,93 +2,86 @@ import { NextResponse } from 'next/server';
 import { createFlynetOAuth, getFlynetConfig } from '@/lib/flynet';
 import { getCookie } from '@/lib/cookies';
 import {
-  flynetLoginCookies,
-  OAUTH_VERIFIER_COOKIE,
+  OAUTH_PENDING_COOKIE,
   OAUTH_STATE_COOKIE,
+  OAUTH_VERIFIER_COOKIE,
+  oauthPendingCookieOptions,
 } from '@/lib/auth/session-cookies';
+import { logOAuthFailure, logOAuthPhase } from '@/lib/auth/oauth-diagnostics';
+
+function failureRedirect(
+  req: Request,
+  error: string,
+  code: Parameters<typeof logOAuthFailure>[1],
+  detail?: unknown
+) {
+  logOAuthFailure('callback', code, detail);
+  return NextResponse.redirect(new URL(`/?error=${error}`, req.url));
+}
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
-  const error = url.searchParams.get('error');
-  const errorDescription = url.searchParams.get('error_description');
+  const providerError = url.searchParams.get('error');
 
-  // Handle explicit OAuth errors from consent screen (never reflect provider detail)
-  if (error) {
-    console.error('[BlackPalate OAuth provider error]:', error, errorDescription);
-    return NextResponse.redirect(
-      new URL('/?error=oauth_provider_error', req.url)
-    );
+  logOAuthPhase('callback_received');
+  logOAuthPhase('code_present', { present: Boolean(code) });
+
+  if (providerError) {
+    return failureRedirect(req, 'oauth_provider_error', 'OAUTH_PROVIDER_ERROR');
   }
 
-  // Safe handler before OAuth / missing code
   if (!code) {
-    return NextResponse.redirect(
-      new URL('/?error=missing_authorization_code', req.url)
-    );
+    return failureRedirect(req, 'missing_authorization_code', 'OAUTH_TOKEN_EXCHANGE_FAILED');
   }
 
-  // Retrieve code_verifier and state from HttpOnly cookies (robust parser:
-  // values may legitimately contain '=' and must never be truncated).
-  const cookieHeader = req.headers.get('cookie') || '';
+  const cookieHeader = req.headers.get('cookie');
   const storedVerifier = getCookie(cookieHeader, OAUTH_VERIFIER_COOKIE);
   const storedState = getCookie(cookieHeader, OAUTH_STATE_COOKIE);
 
-  if (!storedState || storedState !== state) {
-    return NextResponse.redirect(
-      new URL('/?error=invalid_oauth_state', req.url)
-    );
+  logOAuthPhase('state_cookie_present', { present: Boolean(storedState) });
+  if (!storedState || !state || storedState !== state) {
+    logOAuthPhase('state_valid', { valid: false });
+    return failureRedirect(req, 'invalid_oauth_state', 'OAUTH_STATE_INVALID');
   }
+  logOAuthPhase('state_valid', { valid: true });
 
+  logOAuthPhase('verifier_present', { present: Boolean(storedVerifier) });
   if (!storedVerifier) {
-    return NextResponse.redirect(
-      new URL('/?error=missing_pkce_verifier', req.url)
-    );
+    return failureRedirect(req, 'missing_pkce_verifier', 'PKCE_VERIFIER_MISSING');
   }
 
   const config = getFlynetConfig();
   if (!config.clientSecret) {
-    return NextResponse.redirect(
-      new URL('/?error=server_missing_client_secret', req.url)
-    );
+    return failureRedirect(req, 'server_missing_client_secret', 'OAUTH_TOKEN_EXCHANGE_FAILED');
   }
 
   try {
+    logOAuthPhase('exchange_started', { environment: config.environment });
     const oauth = createFlynetOAuth();
     const tokens = await oauth.exchangeCode({
       code,
       codeVerifier: storedVerifier,
     });
+    if (!tokens.access_token) throw new Error('OAuth exchange returned no access token');
+    logOAuthPhase('exchange_succeeded', { refreshTokenSupplied: Boolean(tokens.refresh_token) });
 
-    const response = NextResponse.redirect(new URL('/?oauth_success=true', req.url));
-
-    // Token-Mediating Backend Pattern via the single session-cookie source of
-    // truth: access token on Path '/' (product routes consume it), refresh
-    // token scoped to /api/auth. HttpOnly is never weakened.
-    const isProd = process.env.NODE_ENV === 'production';
-    const { access, refresh } = flynetLoginCookies(
-      {
+    // The callback writes one short-lived, HttpOnly handoff cookie. The session
+    // route then fans access, refresh, and cleanup cookies across one-cookie
+    // redirects because Vercel may fold duplicate Set-Cookie headers.
+    const response = NextResponse.redirect(new URL('/api/auth/session?step=access', req.url));
+    response.cookies.set(
+      OAUTH_PENDING_COOKIE,
+      JSON.stringify({
         access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
+        refresh_token: tokens.refresh_token ?? null,
         expires_in: tokens.expires_in,
-      },
-      isProd
+      }),
+      oauthPendingCookieOptions(process.env.NODE_ENV === 'production')
     );
-    response.cookies.set(access.name, access.value, access.options as any);
-    if (refresh) {
-      response.cookies.set(refresh.name, refresh.value, refresh.options as any);
-    }
-
-    // Clean up one-time PKCE verifier cookies
-    response.cookies.delete(OAUTH_VERIFIER_COOKIE);
-    response.cookies.delete(OAUTH_STATE_COOKIE);
-
     return response;
-  } catch (err: any) {
-    console.error('[BlackPalate OAuth token exchange failed]:', err);
-    return NextResponse.redirect(
-      new URL('/?error=oauth_failed', req.url)
-    );
+  } catch (err: unknown) {
+    return failureRedirect(req, 'oauth_failed', 'OAUTH_TOKEN_EXCHANGE_FAILED', err);
   }
 }
