@@ -41,7 +41,9 @@ export interface QualificationRule {
   type: QualificationRuleType;
   threshold?: number;
   targetCuisine?: string;
+  cuisine?: string;
   targetRestaurantIds?: string[];
+  restaurantId?: string;
   description: string;
 }
 
@@ -115,17 +117,17 @@ export function evaluateDinerQualification(
       }
 
       case 'MIN_CUISINE_VISITS': {
-        const target = (rule.targetCuisine ?? '').trim().toLowerCase();
+        const target = ((rule.targetCuisine || rule.cuisine) ?? '').trim().toLowerCase();
         const threshold = rule.threshold ?? 1;
         const actualCount = cuisineVisitCounts.get(target) || 0;
         actualValue = actualCount;
         passed = actualCount >= threshold;
-        details = `Verified ${rule.targetCuisine || 'target'} cuisine visits: ${actualCount}/${threshold}`;
+        details = `Verified ${(rule.targetCuisine || rule.cuisine) || 'target'} cuisine visits: ${actualCount}/${threshold}`;
         break;
       }
 
       case 'SPECIFIC_RESTAURANT_VISITS': {
-        const targetIds = rule.targetRestaurantIds ?? [];
+        const targetIds = rule.targetRestaurantIds ?? (rule.restaurantId ? [rule.restaurantId] : []);
         let count = 0;
         for (const tid of targetIds) {
           if (visitedRestaurantIds.has(tid)) count++;
@@ -138,7 +140,7 @@ export function evaluateDinerQualification(
       }
 
       case 'NEW_TO_RESTAURANT': {
-        const targetIds = rule.targetRestaurantIds ?? [];
+        const targetIds = rule.targetRestaurantIds ?? (rule.restaurantId ? [rule.restaurantId] : []);
         const hasVisited = targetIds.some(tid => visitedRestaurantIds.has(tid));
         actualValue = !hasVisited;
         passed = !hasVisited;
@@ -173,4 +175,7 @@ export function evaluateDinerQualification(
     explanation,
   };
 }
+
+export const evaluateQualification = evaluateDinerQualification;
+
 

@@ -1,0 +1,50 @@
+import { NextResponse } from 'next/server';
+import { db } from '@/lib/db/repository';
+import { synthesizeFeedbackWithAI } from '@/lib/ai';
+
+export async function GET(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const campaign = await db.getCampaignById(params.id);
+    if (!campaign) {
+      return NextResponse.json({ ok: false, error: 'Campaign not found' }, { status: 404 });
+    }
+
+    // Check if report already exists in database
+    let report = await db.getSynthesis(params.id);
+    const submissions = await db.getFeedbacks(params.id);
+
+    if (!report && submissions.length > 0) {
+      // Generate new AI synthesis report
+      const generated = await synthesizeFeedbackWithAI(campaign, submissions);
+      report = await db.saveSynthesis(generated);
+    } else if (!report) {
+      // Fallback empty draft report
+      report = {
+        id: `synth_preview_${params.id}`,
+        campaignId: params.id,
+        executiveSummary: 'Tasting campaign is currently active. Waiting for diner submissions to generate culinary synthesis.',
+        flavorAnalysis: 'Data points will populate automatically upon completion of tastings.',
+        cohortTrends: [],
+        recommendations: ['Monitor initial qualified applicants.'],
+        rawSubmissionCount: 0,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    return NextResponse.json({
+      ok: true,
+      report,
+      submissionsCount: submissions.length,
+      submissions,
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: err.message || 'Synthesis retrieval failed' },
+      { status: 500 }
+    );
+  }
+}
+
