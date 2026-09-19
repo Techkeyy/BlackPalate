@@ -480,6 +480,15 @@ export default function BlackPalateApp() {
     }
   }, [activeNav]);
 
+  // A prior join attempt may leave a global banner visible after navigation.
+  // My Tastings must reflect the current applications state, not stale join UI.
+  useEffect(() => {
+    if (activeNav === 'my-tastings') {
+      setStatusBanner(null);
+      setJoinError(null);
+    }
+  }, [activeNav]);
+
   // Handle Restaurant Operator Login (Managed Neon Auth via official client)
   async function handleOperatorLogin() {
     try {
@@ -547,6 +556,22 @@ export default function BlackPalateApp() {
         loadData();
         setSelectedTasting(null);
         setActiveNav('my-tastings');
+      } else if (data.qualified === false) {
+        const noVerifiedHistory = Number(data.evalResult?.totalCheckIns ?? -1) === 0;
+        const userErr: UserSafeError = noVerifiedHistory
+          ? {
+              title: 'No verified dining history yet',
+              message: 'No matching verified dining history yet.',
+              actionText: 'Explore Other Tastings',
+              actionType: 'DISMISS',
+              isPreserved: false,
+            }
+          : mapErrorToUserMessage(data, 'join_tasting');
+        setJoinError(userErr);
+        setStatusBanner({
+          type: noVerifiedHistory ? 'info' : 'warning',
+          text: userErr.message,
+        });
       } else {
         const userErr = mapErrorToUserMessage(data, 'join_tasting');
         setJoinError(userErr);
