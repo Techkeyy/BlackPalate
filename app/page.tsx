@@ -419,6 +419,10 @@ export default function BlackPalateApp() {
               setOperatorWorkspaces(meData.workspaces || []);
               if (meData.workspaces?.length > 0) {
                 setActiveWorkspace(meData.workspaces[0]);
+              } else {
+                // A valid operator with no membership goes directly to the
+                // existing workspace-creation flow, never back to sign-in.
+                setIsCreatingWorkspaceModalOpen(true);
               }
               consumePendingRestaurantNav();
             } else if (meData.role === 'DINER') {
