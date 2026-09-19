@@ -70,6 +70,7 @@ interface Campaign {
   timeCommitment?: string;
   targetCuisines: string[];
   minTotalCheckIns: number;
+  minDistinctVenues?: number;
   minCuisineVisits: number;
   mustBeNewToVenue: boolean;
   rewardFly: string;
@@ -115,6 +116,14 @@ interface RestaurantApplication {
   };
 }
 
+type TastingQualificationState = {
+  status: 'loading' | 'qualified' | 'not_qualified' | 'error' | 'unauthenticated' | 'already_applied';
+  qualified?: boolean;
+  historyAvailable?: boolean;
+  checkInsCount?: number;
+  reasons?: string[];
+  message?: string;
+};
 export default function BlackPalateApp() {
   const [activeNav, setActiveNav] = useState<
     'landing' | 'discover' | 'my-tastings' | 'create-tasting' | 'campaign-studio' | 'diagnostics' | 'live-demo'
@@ -124,6 +133,8 @@ export default function BlackPalateApp() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [demoCampaigns, setDemoCampaigns] = useState<Campaign[]>([]);
   const [selectedTasting, setSelectedTasting] = useState<Campaign | null>(null);
+  const [tastingQualification, setTastingQualification] = useState<TastingQualificationState | null>(null);
+  const [qualificationRetry, setQualificationRetry] = useState(0);
   const [userApplications, setUserApplications] = useState<Application[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [sessionUser, setSessionUser] = useState<any>(null);
@@ -164,28 +175,27 @@ export default function BlackPalateApp() {
   // Progressive Mission Builder State (Dscout philosophy)
   const [builderStep, setBuilderStep] = useState<number>(1);
   const [newCampaign, setNewCampaign] = useState({
-    restaurantName: 'Gramercy Tavern',
-    dishFocus: 'Wood-Fired Duck Breast with Plum Mostarda',
-    researchGoal:
-      'Determine if diners prefer a crisper skin rendering or higher acid plum glaze.',
-    cuisine: 'Contemporary American',
-    location: 'Flatiron, NYC',
-    timing: 'Friday, 7:00 PM',
+    restaurantName: '',
+    dishFocus: '',
+    researchGoal: '',
+    cuisine: '',
+    location: '',
+    timing: '',
     timeCommitment: '45 minutes',
     minTotalCheckIns: 2,
     minCuisineVisits: 1,
     mustBeNewToVenue: false,
-    rewardFly: '35',
+    rewardFly: '10',
     maxSlots: 8,
     questions: [
       {
         id: 'q1',
-        prompt: 'Rate the balance between skin crispness and meat tenderness:',
+        prompt: 'What did you notice first about the dish?',
         type: 'scale',
       },
       {
         id: 'q2',
-        prompt: 'Did the plum mostarda acidity cut the rich fat adequately?',
+        prompt: 'How would you improve the dish or dining experience?',
         type: 'yes_no',
       },
       {
@@ -267,6 +277,15 @@ export default function BlackPalateApp() {
     }
   }
 
+  useEffect(() => {
+    if (!activeWorkspace) return;
+    setNewCampaign((previous) => ({
+      ...previous,
+      restaurantName: previous.restaurantName || activeWorkspace.name || '',
+      cuisine: previous.cuisine || activeWorkspace.cuisine?.[0] || '',
+      location: previous.location || activeWorkspace.neighborhood || '',
+    }));
+  }, [activeWorkspace]);
   function renderRestaurantAuthGate() {    return (
       <main
         style={{
@@ -566,24 +585,17 @@ export default function BlackPalateApp() {
     }
   }
 
-  // Handle joining tasting (fails closed if Flynet is unavailable)
+  // Handle joining a tasting. The server re-checks identity, history, rules,
+  // capacity, and duplicate application state authoritatively.
   async function handleJoinTasting(campaign: Campaign) {
     if (!isAuthenticated) {
       const authErr = mapErrorToUserMessage('AUTH_REQUIRED', 'join_tasting');
       setJoinError(authErr);
-      setStatusBanner({
-        type: 'warning',
-        text: authErr.message,
-      });
       return;
     }
 
     setIsJoiningTasting(true);
     setJoinError(null);
-    setStatusBanner({
-      type: 'info',
-      text: `Evaluating Flynet dining history for "${campaign.title}"...`,
-    });
     try {
       const res = await fetch(`/api/campaigns/${campaign.id}/apply`, {
         method: 'POST',
@@ -593,44 +605,109 @@ export default function BlackPalateApp() {
       if (data.ok) {
         setStatusBanner({
           type: 'success',
-          text: `You have joined the tasting for "${campaign.dishFocus}". Expected reward: ${campaign.rewardFly} FLY.`,
+          text: `You have joined the tasting for "${campaign.dishFocus}". Reward: ${campaign.rewardFly} FLY after verified attendance and completed feedback.`,
         });
+        setTastingQualification({ status: 'already_applied', qualified: true, historyAvailable: true });
         setJoinError(null);
-        loadData();
+        await loadData();
         setSelectedTasting(null);
         setActiveNav('my-tastings');
-      } else if (data.qualified === false) {
-        const noVerifiedHistory = Number(data.evalResult?.totalCheckIns ?? -1) === 0;
-        const userErr: UserSafeError = noVerifiedHistory
-          ? {
-              title: 'No verified dining history yet',
-              message: 'No matching verified dining history yet.',
-              actionText: 'Explore Other Tastings',
-              actionType: 'DISMISS',
-              isPreserved: false,
-            }
-          : mapErrorToUserMessage(data, 'join_tasting');
-        setJoinError(userErr);
-        setStatusBanner({
-          type: noVerifiedHistory ? 'info' : 'warning',
-          text: userErr.message,
+      } else if (data.code === 'QUALIFICATION_NOT_MET' || data.qualified === false) {
+        const reasons = Array.isArray(data.reasons) ? data.reasons : ['This tasting requires a different verified dining history.'];
+        setTastingQualification({
+          status: 'not_qualified',
+          qualified: false,
+          historyAvailable: data.historyAvailable !== false,
+          checkInsCount: Number(data.checkInsCount ?? data.qualification?.totalCheckIns ?? 0),
+          reasons,
+        });
+        setJoinError({
+          title: 'Not qualified for this tasting',
+          message: reasons.join(' '),
+          actionText: 'Explore Other Tastings',
+          actionType: 'DISMISS',
+          isPreserved: false,
+        });
+      } else if (data.code === 'CONFLICT') {
+        setTastingQualification({ status: 'already_applied', qualified: true, historyAvailable: true });
+        setJoinError(null);
+      } else if (data.code === 'FLYNET_UNAVAILABLE') {
+        setTastingQualification({
+          status: 'error',
+          historyAvailable: false,
+          message: "We couldn't verify your dining history right now.",
+        });
+        setJoinError({
+          title: "We couldn't verify your dining history right now",
+          message: 'Your application was not changed. Try again in a moment.',
+          actionText: 'Retry',
+          actionType: 'RETRY',
+          isPreserved: true,
         });
       } else {
         const userErr = mapErrorToUserMessage(data, 'join_tasting');
         setJoinError(userErr);
-        setStatusBanner({
-          type: 'warning',
-          text: userErr.message,
-        });
       }
     } catch (err: any) {
       const userErr = mapErrorToUserMessage(err, 'join_tasting');
       setJoinError(userErr);
-      setStatusBanner({ type: 'warning', text: userErr.message });
     } finally {
       setIsJoiningTasting(false);
     }
   }
+
+  async function loadTastingQualification(campaignId: string) {
+    setTastingQualification({ status: 'loading' });
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/qualification`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const data = await res.json().catch(() => null);
+      if (data?.ok) {
+        setTastingQualification({
+          status: data.qualified ? 'qualified' : 'not_qualified',
+          qualified: Boolean(data.qualified),
+          historyAvailable: data.historyAvailable !== false,
+          checkInsCount: Number(data.checkInsCount || 0),
+          reasons: Array.isArray(data.reasons) ? data.reasons : [],
+        });
+      } else if (data?.code === 'UNAUTHORIZED') {
+        setTastingQualification({
+          status: 'unauthenticated',
+          message: 'Sign in with Blackbird to check your qualification.',
+        });
+      } else if (data?.code === 'FLYNET_UNAVAILABLE') {
+        setTastingQualification({
+          status: 'error',
+          historyAvailable: false,
+          message: "We couldn't verify your dining history right now.",
+        });
+      } else {
+        setTastingQualification({ status: 'error', message: 'We could not evaluate this tasting right now.' });
+      }
+    } catch {
+      setTastingQualification({
+        status: 'error',
+        message: "We couldn't verify your dining history right now.",
+      });
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedTasting) {
+      setTastingQualification(null);
+      return;
+    }
+    const existing = userApplications.find(
+      (application) => application.campaignId === selectedTasting.id && application.status !== 'REJECTED'
+    );
+    if (existing) {
+      setTastingQualification({ status: 'already_applied', qualified: true, historyAvailable: true });
+      return;
+    }
+    loadTastingQualification(selectedTasting.id);
+  }, [selectedTasting?.id, userApplications, qualificationRetry]);
 
   // Handle submitting feedback
   async function handleSubmitFeedback(e: React.FormEvent) {
@@ -805,6 +882,11 @@ export default function BlackPalateApp() {
         type: 'warning',
         text: authErr.message,
       });
+      return;
+    }
+
+    if (!newCampaign.dishFocus || !newCampaign.cuisine) {
+      setStatusBanner({ type: 'warning', text: 'Add a dish focus and cuisine before publishing this tasting.' });
       return;
     }
 
@@ -1745,7 +1827,7 @@ export default function BlackPalateApp() {
                     }}
                   >
                     Submit structured sensory responses and direct recommendations
-                    to earn FLY rewards settled through Flynet smart contracts.
+                    to earn FLY rewards after verified attendance and completed feedback.
                   </p>
                 </div>
               </StaggerItem>
@@ -2755,7 +2837,7 @@ export default function BlackPalateApp() {
                 backgroundColor: '#121212',
                 border: '1px solid rgba(255, 255, 255, 0.12)',
                 borderRadius: '14px',
-                maxWidth: '620px',
+                maxWidth: '800px',
                 width: '100%',
                 maxHeight: '90vh',
                 overflowY: 'auto',
@@ -2859,7 +2941,7 @@ export default function BlackPalateApp() {
               >
                 <div>
                   <div style={{ fontSize: '12px', color: '#78716C' }}>
-                    Tasting Incentive
+                    Reward
                   </div>
                   <div
                     style={{
@@ -2871,7 +2953,7 @@ export default function BlackPalateApp() {
                     {selectedTasting.rewardFly} FLY
                   </div>
                   <div style={{ fontSize: '11px', color: '#A8A29E' }}>
-                    Settled on Flynet upon submission
+                    Paid after verified attendance and completed feedback.
                   </div>
                 </div>
                 <div>
@@ -2905,7 +2987,7 @@ export default function BlackPalateApp() {
                     fontWeight: '700',
                   }}
                 >
-                  Culinary Research Focus
+                  Research focus
                 </h4>
                 <p
                   style={{
@@ -2919,13 +3001,13 @@ export default function BlackPalateApp() {
                 </p>
               </div>
 
-              {/* Qualification Rules */}
+              {/* Qualification requirements */}
               <div
                 style={{
                   backgroundColor: '#080808',
                   borderRadius: '8px',
                   padding: '16px',
-                  marginBottom: '24px',
+                  marginBottom: '18px',
                   border: '1px solid rgba(255, 255, 255, 0.08)',
                 }}
               >
@@ -2936,55 +3018,62 @@ export default function BlackPalateApp() {
                     color: '#F59E0B',
                     margin: '0 0 10px 0',
                     fontWeight: '700',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
                   }}
                 >
-                  <ShieldCheck size={15} />
-                  Flynet Behavior Qualification Criteria
+                  Qualification requirements
                 </h4>
-                <ul
-                  style={{
-                    margin: 0,
-                    paddingLeft: '18px',
-                    fontSize: '13px',
-                    color: '#E7E5E4',
-                    lineHeight: '1.6',
-                  }}
-                >
+                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px', color: '#E7E5E4', lineHeight: '1.6' }}>
                   {selectedTasting.minTotalCheckIns > 0 && (
-                    <li>
-                      Minimum Total Visits:{' '}
-                      <strong>{selectedTasting.minTotalCheckIns} Blackbird check-in(s)</strong>
-                    </li>
+                    <li>{selectedTasting.minTotalCheckIns} verified Blackbird visit{selectedTasting.minTotalCheckIns === 1 ? '' : 's'}</li>
                   )}
-                  {selectedTasting.minTotalCheckIns === 0 && selectedTasting.mustBeNewToVenue && (
-                    <li>
-                      History Requirement: <strong>No prior verified visits to this venue</strong>
-                    </li>
+                  {selectedTasting.minDistinctVenues && selectedTasting.minDistinctVenues > 0 && (
+                    <li>{selectedTasting.minDistinctVenues} distinct verified restaurant visit{selectedTasting.minDistinctVenues === 1 ? '' : 's'}</li>
                   )}
                   {selectedTasting.minCuisineVisits > 0 && (
-                    <li>
-                      Minimum Cuisine Visits:{' '}
-                      <strong>
-                        {selectedTasting.minCuisineVisits} verified visit(s) to{' '}
-                        {selectedTasting.targetCuisines.join('/')}
-                      </strong>
-                    </li>
+                    <li>{selectedTasting.minCuisineVisits} verified {selectedTasting.targetCuisines[0] || 'matching cuisine'} visit{selectedTasting.minCuisineVisits === 1 ? '' : 's'}</li>
                   )}
                   {selectedTasting.mustBeNewToVenue && (
-                    <li>
-                      Target Cohort:{' '}
-                      <strong>
-                        Must be a first-time guest to {selectedTasting.restaurantName}
-                      </strong>
-                    </li>
+                    <li>No prior verified visits to {selectedTasting.restaurantName || 'this restaurant'}</li>
                   )}
                 </ul>
               </div>
 
-              {joinError && (
+              {tastingQualification?.status === 'loading' && (
+                <div role="status" style={{ color: '#A8A29E', fontSize: '13px', marginBottom: '18px' }}>
+                  Checking qualification...
+                </div>
+              )}
+              {tastingQualification?.status === 'qualified' && (
+                <div role="status" style={{ backgroundColor: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '8px', padding: '14px', marginBottom: '18px', color: '#A7F3D0', fontSize: '13px' }}>
+                  <strong>You're qualified</strong>
+                  {selectedTasting.mustBeNewToVenue && <div style={{ marginTop: '4px' }}>No prior verified visits to this restaurant.</div>}
+                </div>
+              )}
+              {tastingQualification?.status === 'not_qualified' && (
+                <div role="status" style={{ backgroundColor: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '8px', padding: '14px', marginBottom: '18px', color: '#FDE68A', fontSize: '13px' }}>
+                  <strong>Not qualified for this tasting</strong>
+                  {tastingQualification.checkInsCount === 0 && <div style={{ marginTop: '4px' }}>You currently have no verified Blackbird dining history.</div>}
+                  {tastingQualification.reasons?.map((reason) => <div key={reason} style={{ marginTop: '4px' }}>{reason}</div>)}
+                </div>
+              )}
+              {tastingQualification?.status === 'error' && (
+                <CalloutAlert
+                  type="warning"
+                  title="We couldn't verify your dining history right now"
+                  message="Your application was not changed. Try again in a moment."
+                  actionText="Retry"
+                  onAction={() => setQualificationRetry((value) => value + 1)}
+                />
+              )}
+              {tastingQualification?.status === 'unauthenticated' && (
+                <CalloutAlert
+                  type="info"
+                  title="Blackbird sign-in required"
+                  message="Sign in with Blackbird to check your qualification for this tasting."
+                />
+              )}
+
+              {joinError && tastingQualification?.status !== 'error' && (
                 <CalloutAlert
                   error={joinError}
                   onDismiss={() => setJoinError(null)}
@@ -2992,42 +3081,11 @@ export default function BlackPalateApp() {
                 />
               )}
 
-              {/* Truthful Verification Notice */}
-              <div
-                style={{
-                  backgroundColor: '#451A03',
-                  border: '1px solid #78350F',
-                  borderRadius: '8px',
-                  padding: '14px',
-                  marginBottom: '24px',
-                  color: '#FEF3C7',
-                  fontSize: '13px',
-                }}
-              >
-                <div
-                  style={{
-                    fontWeight: '700',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    marginBottom: '4px',
-                  }}
-                >
-                  <AlertCircle size={15} color="#10B981" />
-                  Flynet API: Live — Blackbird Member Login where supported
-                </div>
-                <div style={{ color: '#FDE68A', fontSize: '12px', lineHeight: '1.5' }}>
-                  Live Flynet dining activity is connected. Personal qualification
-                  needs a Blackbird member sign-in; a live network demo is available
-                  where Passport sign-in is unsupported.
-                </div>
-              </div>
-
               {/* Action Buttons */}
               <div style={{ display: 'flex', gap: '12px' }}>
                 <InteractiveButton
                   onClick={() => handleJoinTasting(selectedTasting)}
-                  disabled={isJoiningTasting}
+                  disabled={isJoiningTasting || tastingQualification?.status !== 'qualified'}
                   variant="primary"
                   style={{
                     flex: 1,
@@ -3037,8 +3095,18 @@ export default function BlackPalateApp() {
                   }}
                 >
                   {isJoiningTasting
-                    ? 'Evaluating Dining History...'
-                    : 'Apply to this tasting'}
+                    ? 'Applying...'
+                    : tastingQualification?.status === 'loading' || !tastingQualification
+                      ? 'Checking qualification...'
+                      : tastingQualification.status === 'qualified'
+                        ? 'Apply to this tasting'
+                        : tastingQualification.status === 'already_applied'
+                          ? 'Applied'
+                          : tastingQualification.status === 'error'
+                            ? 'Verification unavailable'
+                            : tastingQualification.status === 'unauthenticated'
+                              ? 'Sign in to check qualification'
+                              : 'Not eligible for this tasting'}
                 </InteractiveButton>
                 <InteractiveButton
                   onClick={() => {
@@ -3080,7 +3148,7 @@ export default function BlackPalateApp() {
               </h2>
               <p style={{ fontSize: '14px', color: '#A8A29E', margin: 0 }}>
                 Track your reservations, submit sensory evaluations, and monitor FLY
-                reward settlement.
+                rewards paid after verified attendance and completed feedback.
               </p>
             </div>
 
@@ -5744,7 +5812,7 @@ export default function BlackPalateApp() {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Gramercy Tavern"
+                    placeholder="e.g. Your restaurant"
                     value={workspaceForm.name}
                     onChange={(e) => setWorkspaceForm({ ...workspaceForm, name: e.target.value })}
                     style={{

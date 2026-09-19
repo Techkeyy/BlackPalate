@@ -9,6 +9,7 @@ export type SafeErrorCode =
   | 'NOT_FOUND'
   | 'CONFLICT'
   | 'CAMPAIGN_FULL'
+  | 'QUALIFICATION_NOT_MET'
   | 'ATTENDANCE_REQUIRED'
   | 'SERVICE_TEMPORARY'
   | 'EXTERNAL_TEMPORARY';
@@ -22,6 +23,7 @@ const SAFE_MESSAGES: Record<SafeErrorCode, string> = {
   NOT_FOUND: 'The requested tasting or resource could not be found.',
   CONFLICT: 'This action has already been completed.',
   CAMPAIGN_FULL: 'All available tasting slots for this dish have been filled. Check back soon for new sessions.',
+  QUALIFICATION_NOT_MET: 'You are not qualified for this tasting.',
   ATTENDANCE_REQUIRED: 'You must check in at the restaurant venue before submitting tasting feedback.',
   SERVICE_TEMPORARY: "We couldn't complete that action right now. Nothing was changed. Try again in a moment.",
   EXTERNAL_TEMPORARY: 'Blackbird verification is temporarily unavailable. Nothing was changed. Try again in a moment.',

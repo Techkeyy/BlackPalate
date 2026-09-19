@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
-import { resolveRequestIdentity } from '@/lib/auth/resolve';
+import { resolveFlynetDinerIdentity } from '@/lib/auth/diner';
 import { safeCatch } from '@/lib/api-errors';
 
 export const dynamic = 'force-dynamic';
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
     // Same session source as every protected route: shared identity resolution.
-    const identity = await resolveRequestIdentity(req);
+    const identity = await resolveFlynetDinerIdentity(req);
 
     // Unauthenticated state: Return empty state safely without exposing any other user's records
     if (!identity.authenticated) {

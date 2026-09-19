@@ -3,6 +3,7 @@ import { db } from '@/lib/db/repository';
 import { getAuthenticatedOperator } from '@/lib/auth';
 import { safeError, safeCatch } from '@/lib/api-errors';
 import { filterPublicMarketplaceCampaigns } from '@/lib/campaign-visibility';
+import { normalizeCampaignNarrative } from '@/lib/campaign-content';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +26,12 @@ export async function GET(req: Request) {
           ? campaigns
           : filterPublicMarketplaceCampaigns(campaigns);
 
-    return NextResponse.json({ ok: true, campaigns: visibleCampaigns });
+    const normalizedCampaigns = visibleCampaigns.map(campaign => ({
+      ...campaign,
+      ...normalizeCampaignNarrative(campaign),
+    }));
+
+    return NextResponse.json({ ok: true, campaigns: normalizedCampaigns });
   } catch (err: any) {
     return safeCatch(err);
   }
@@ -54,20 +60,35 @@ export async function POST(req: Request) {
       return safeError(403, 'FORBIDDEN_WORKSPACE', `no membership for publish`);
     }
 
+    // 3. Resolve authoritative workspace content. Client text cannot replace the
+    // restaurant identity attached to the authenticated operator's membership.
+    const restaurant = await db.getRestaurantById(body.restaurantId);
+    if (!restaurant) return safeError(404, 'NOT_FOUND');
+    const targetCuisines = Array.isArray(body.targetCuisines) && body.targetCuisines.length > 0
+      ? body.targetCuisines
+      : restaurant.cuisine;
+    const campaignNarrative = normalizeCampaignNarrative({
+      restaurantName: restaurant.name,
+      dishFocus: body.dishFocus,
+      targetCuisines,
+      restaurantCuisine: restaurant.cuisine,
+      description: typeof body.description === 'string' ? body.description : '',
+      researchGoal: typeof body.researchGoal === 'string' ? body.researchGoal : '',
+    });
     // 3. Create persistent campaign
     const mustBeNewToVenue = Boolean(body.mustBeNewToVenue);
     const campaign = await db.createCampaign({
       title: body.title,
-      description: body.description || '',
+      description: campaignNarrative.description || '',
       dishFocus: body.dishFocus,
-      researchGoal: body.researchGoal || null,
+      researchGoal: campaignNarrative.researchGoal || null,
       restaurantId: body.restaurantId,
-      restaurantName: body.restaurantName,
-      restaurantCuisine: body.restaurantCuisine || [],
-      location: body.location || 'NYC',
+      restaurantName: restaurant.name,
+      restaurantCuisine: restaurant.cuisine,
+      location: body.location || restaurant.neighborhood || 'NYC',
       timing: body.timing || 'Flexible schedule',
       timeCommitment: body.timeCommitment || '45 minutes',
-      targetCuisines: body.targetCuisines || [],
+      targetCuisines,
       minTotalCheckIns: parseNonNegativeInteger(body.minTotalCheckIns, mustBeNewToVenue ? 0 : 1),
       minDistinctVenues: parseNonNegativeInteger(body.minDistinctVenues, 0),
       minCuisineVisits: parseNonNegativeInteger(body.minCuisineVisits, 0),

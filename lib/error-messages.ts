@@ -133,6 +133,15 @@ export function mapErrorToUserMessage(rawError: any, context?: 'campaign_publish
     };
   }
 
+  if (normalized.includes('QUALIFICATION_NOT_MET') || normalized.includes('NOT_QUALIFIED')) {
+    return {
+      title: 'Not qualified for this tasting',
+      message: 'This tasting requires verified dining history that you do not currently meet.',
+      actionText: 'Explore Other Tastings',
+      actionType: 'DISMISS',
+      isPreserved: false,
+    };
+  }
   // 5. External Blackbird / Flynet Availability
   if (normalized.includes('FLYNET') || normalized.includes('BLACKBIRD') || normalized.includes('MAKER') || normalized.includes('APPROVAL')) {
     return {
