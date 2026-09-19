@@ -99,6 +99,12 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 - **Prisma**: removed (`prisma/`, `@prisma/client`, `prisma` dev dep); truth = `lib/db/schema.sql` + `repository.ts`. Added explicit `dotenv` dev dep (was transitive).
 - **Not finished**: no Google UAT, Flynet blocked, no human manual UAT. Do NOT call finished.
 
+## Hotfix: Restaurant Google Auth 404 (2026-09-19)
+- **Root cause**: frontend navigated directly to `/api/auth/neon/sign-in/social?provider=google…`, which is not a Better Auth action path → prod 404.
+- **Fix**: `lib/auth/client.ts` (`createAuthClient` from `@neondatabase/auth/next`); login via `authClient.signIn.social({provider:'google', callbackURL: origin})`; logout via `authClient.signOut()` + session refresh; standard mount `app/api/auth/[...path]` (`GET, POST` from `neonAuth.handler()`); removed `app/api/auth/neon/[...path]`. Flynet statics (`login`/`callback`/`refresh`/`me`) intact and take precedence. No raw auth errors in UI (mapper `auth` context).
+- **Prod proof**: `GET /api/auth/get-session` → 200 `null` (handler live, fail-closed); old `/api/auth/neon/*` → 404; `/api/auth/login` still 400 fail-closed (Flynet blocked).
+- Restaurant Google sign-in UAT still requires human (provider + trusted origin console state unverified). Do NOT call finished.
+
 ## Next Recommended Action
 Awaiting Blackbird admin approval in Flynet Make. Once approved:
 1. Generate Staging API key (`fly_test_...`) and OAuth Client ID / Secret with redirect URI `https://blackpalate.vercel.app/api/auth/callback`.
