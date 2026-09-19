@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server';
 import { createFlynetOAuth } from '@/lib/flynet';
 import { getCookie } from '@/lib/cookies';
 import { db } from '@/lib/db/repository';
-import { resolveRequestIdentity, type RequestIdentity } from '@/lib/auth/resolve';
+import { getAuthenticatedOperator, resolveOrCreateFlynetDinerUser } from '@/lib/auth';
+import type { RequestIdentity } from '@/lib/auth/resolve';
+import {
+  flynetMemberFetch,
+  extractFlynetCheckIns,
+  FLYNET_MEMBER_PATHS,
+} from '@/lib/flynet-member';
 import {
   ACCESS_COOKIE_NAME,
   REFRESH_COOKIE_NAME,
@@ -23,11 +29,103 @@ function replaceAccessCookie(header: string | null, accessToken: string): string
   return parts.join('; ');
 }
 
+/**
+ * The diagnostic route proved this exact cookie read and raw member request.
+ * Keep the diner path deliberately direct until the older resolver abstraction
+ * is no longer on the critical authentication path.
+ */
+async function resolveDirectDinerIdentity(req: Request): Promise<RequestIdentity> {
+  const cookieHeader = req.headers.get('cookie');
+  const accessToken = getCookie(cookieHeader, ACCESS_COOKIE_NAME);
+
+  if (!accessToken) {
+    return { authenticated: false, failure: 'missing_access_token' };
+  }
+
+  const profileResult = await flynetMemberFetch<Record<string, unknown>>(
+    accessToken,
+    FLYNET_MEMBER_PATHS.profile
+  );
+
+  if (!profileResult.ok) {
+    return {
+      authenticated: false,
+      failure: profileResult.failure,
+      upstreamStatus: profileResult.status,
+    };
+  }
+
+  const profile = profileResult.data;
+  const flynetId =
+    profile && typeof profile === 'object' && typeof profile.id === 'string'
+      ? profile.id
+      : null;
+
+  if (!flynetId) {
+    return {
+      authenticated: false,
+      failure: 'provider_unavailable',
+      upstreamStatus: 200,
+    };
+  }
+
+  const checkInsResult = await flynetMemberFetch<unknown>(
+    accessToken,
+    FLYNET_MEMBER_PATHS.checkIns
+  );
+  const checkIns = checkInsResult.ok ? extractFlynetCheckIns(checkInsResult.data) : [];
+
+  let user;
+  try {
+    // profile.id is the only Flynet field required for diner identity.
+    user = await resolveOrCreateFlynetDinerUser({ id: flynetId });
+  } catch {
+    return {
+      authenticated: false,
+      failure: 'internal_user_resolution_failed',
+      upstreamStatus: null,
+    };
+  }
+
+  return {
+    authenticated: true,
+    role: 'DINER',
+    user,
+    flynetUserId: flynetId,
+    dinerName: user.displayName,
+    profile,
+    checkIns,
+  };
+}
+
+async function resolveIdentityDirect(req: Request): Promise<RequestIdentity> {
+  let operator = null;
+  try {
+    operator = await getAuthenticatedOperator(req);
+  } catch {
+    operator = null;
+  }
+
+  // A valid Neon session has precedence. An absent/invalid Neon session must
+  // fall through to the proven Flynet member path.
+  if (operator) {
+    return {
+      authenticated: true,
+      role: 'RESTAURANT',
+      user: operator.user,
+      neonAuthUserId: operator.neonAuthUserId,
+      memberships: operator.memberships,
+    };
+  }
+
+  return resolveDirectDinerIdentity(req);
+}
+
 async function resolveWithRefresh(req: Request): Promise<{
   identity: RequestIdentity;
   refreshedCookies: RefreshedCookies | null;
 }> {
-  let identity = await resolveRequestIdentity(req);
+  let identity = await resolveIdentityDirect(req);
   const cookieHeader = req.headers.get('cookie');
   const accessCookiePresent = Boolean(getCookie(cookieHeader, ACCESS_COOKIE_NAME));
   const refreshToken = getCookie(cookieHeader, REFRESH_COOKIE_NAME);
@@ -35,8 +133,8 @@ async function resolveWithRefresh(req: Request): Promise<{
   let refreshSucceeded = false;
   let refreshedCookies: RefreshedCookies | null = null;
 
-  // Refresh only after the raw member profile request proves the access token
-  // is invalid. Valid profiles and scope/provider failures must not rotate it.
+  // Preserve the existing refresh behavior; only an explicitly invalid raw
+  // access token may trigger it.
   if (!identity.authenticated && identity.failure === 'invalid_token' && refreshToken) {
     refreshAttempted = true;
     try {
@@ -44,7 +142,7 @@ async function resolveWithRefresh(req: Request): Promise<{
       const cookies = flynetLoginCookies(tokens, process.env.NODE_ENV === 'production');
       const headers = new Headers(req.headers);
       headers.set('cookie', replaceAccessCookie(cookieHeader, cookies.access.value));
-      const refreshedIdentity = await resolveRequestIdentity(new Request(req, { headers }));
+      const refreshedIdentity = await resolveIdentityDirect(new Request(req, { headers }));
       if (refreshedIdentity.authenticated) {
         identity = refreshedIdentity;
         refreshedCookies = cookies;
@@ -69,29 +167,13 @@ async function resolveWithRefresh(req: Request): Promise<{
   return { identity, refreshedCookies };
 }
 
-function memberDebugFields(identity: RequestIdentity): Record<string, unknown> {
-  const debug = 'debug' in identity ? identity.debug : undefined;
-  return {
-    debugStage: debug?.stage ?? null,
-    topLevelKeys: debug?.topLevelKeys ?? [],
-    idFieldUsed: debug?.idFieldUsed ?? 'id',
-    idPresent: debug?.idPresent ?? false,
-    profileFetched: debug?.profileFetched ?? false,
-    flynetIdPresent: debug?.flynetIdPresent ?? false,
-    userLookupStarted: debug?.userLookupStarted ?? false,
-    userLookupFound: debug?.userLookupFound ?? false,
-    userCreateStarted: debug?.userCreateStarted ?? false,
-    userCreateSucceeded: debug?.userCreateSucceeded ?? false,
-    userCreateErrorKind: debug?.userCreateErrorKind ?? null,
-    finalRole: debug?.finalRole ?? 'NONE',
-  };
-}
-
 function responseWithSessionCookies(
   body: Record<string, unknown>,
-  refreshedCookies: RefreshedCookies | null
+  refreshedCookies: RefreshedCookies | null,
+  status = 200
 ) {
   const response = NextResponse.json(body, {
+    status,
     headers: {
       'Cache-Control': 'no-store',
       Vary: 'Cookie',
@@ -118,12 +200,24 @@ export async function GET(req: Request) {
   const { identity, refreshedCookies } = await resolveWithRefresh(req);
 
   if (!identity.authenticated) {
+    if (identity.failure === 'internal_user_resolution_failed') {
+      return responseWithSessionCookies(
+        {
+          authenticated: false,
+          role: null,
+          user: null,
+          error: 'INTERNAL_USER_RESOLUTION_FAILED',
+        },
+        refreshedCookies,
+        500
+      );
+    }
+
     return responseWithSessionCookies(
       {
         authenticated: false,
         role: null,
         user: null,
-        ...memberDebugFields(identity),
       },
       refreshedCookies
     );
@@ -157,5 +251,6 @@ export async function GET(req: Request) {
     refreshedCookies
   );
 }
+
 
 
