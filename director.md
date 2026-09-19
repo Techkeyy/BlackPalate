@@ -18,55 +18,42 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 ---
 
 ## Current Status
-**DIRECTIVE 002E COMPLETE — FAKE RESTAURANT LOGIN PURGED, OFFICIAL MANAGED NEON AUTH INSTALLED, SEPARATE WORKSPACE MODEL OPERATIONAL**
+**DIRECTIVE 002F IN PROGRESS — SECRET INCIDENT REMEDIATED, GIT HISTORY SCRUBBED, WORKSPACE ISOLATION ENFORCED, RESTAURANT GOOGLE AUTH UAT PENDING**
 
-- **Managed Authentication**: Official Neon Auth (`@neondatabase/auth` + Better Auth) mounted at `/api/auth/neon/[...path]`.
-- **Security Audit**: All fake custom login routes (`POST /api/auth/restaurant/login`, `logout`), fake synthesized `auth_google_*` IDs, custom HMAC crypto, and fallback secrets completely removed.
-- **Identity Isolation**: Internal `User` model maps real Neon Auth identity (`restaurantAuthUserId`) independently from Flynet diner identity (`flynetUserId`). Accounts sharing an email string are never auto-merged.
-- **Explicit Workspace Ownership**: Logging in no longer synthesizes a fake restaurant. Restaurant creation is an explicit authenticated action (`POST /api/restaurants`) granting `OWNER` membership.
-- **Database**: Official Neon PostgreSQL resource (`neon-beige-forest`) active across Production, Preview, and Local.
+- **Security Incident Status**:
+  - Compromised Neon Auth cookie secret was immediately rotated across all environments (Vercel production, preview, development, and local).
+  - Public Git history was completely rewritten and scrubbed (`OLD_SECRET_OCCURRENCES = 0`).
+  - All hardcoded secret fallbacks and permissive defaults were permanently removed from [`lib/auth.ts`](file:///C:/Users/HomePC/Desktop/BlackPalate/lib/auth.ts) (fails closed if `NEON_AUTH_COOKIE_SECRET` or `NEON_AUTH_BASE_URL` is missing).
+- **Neon Auth Endpoint**: Real endpoint verified at `https://ep-delicate-frost-auxdykag.neonauth.c-10.us-east-1.aws.neon.tech/neondb/auth`.
+- **Google OAuth Provider**: Configured via Neon Auth; requires human owner to ensure Google OAuth client credentials & trusted origins (`https://blackpalate.vercel.app`) are active in Neon Console and Google Cloud Console for live browser authorization.
+- **Restaurant Login**: **UAT PENDING** (awaiting human owner Google sign-in test on production).
+- **Workspace Model**: Fully decoupled from sign-in. New operators have 0 workspaces until explicit creation via [`POST /api/restaurants`](file:///C:/Users/HomePC/Desktop/BlackPalate/app/api/restaurants/route.ts). `rest_01` production fallback permanently removed.
+- **Reward Integrity**: Fabricated `tx_flynet_confirmed` transaction identifier removed. State machine supports `PENDING`, `ISSUING`, `ISSUED`, `FAILED`, and `UNKNOWN`.
 - **Flynet Maker Status**: **BLOCKED / AWAITING BLACKBIRD ADMIN APPROVAL**. Diner Flynet OAuth stays fail-closed.
 
 ---
 
-## Directive 002E System State Summary
+## Directive 002F System State Summary
 
-### 1. Real Managed Auth (Official Neon Auth)
-- Installed and configured `@neondatabase/auth` (0.5.0-beta) and `better-auth`.
-- Official server handler mounted at `app/api/auth/neon/[...path]/route.ts`.
-- `NEON_AUTH_COOKIE_SECRET` provisioned and encrypted across Vercel production, preview, and local `.env.local`.
-- Zero client-supplied identity parameters trusted: operator identity resolved purely from `neonAuth.getSession(req)`.
+### 1. Secret Hygiene & Fail-Closed Configuration
+- Rotated `NEON_AUTH_COOKIE_SECRET` into cryptographically random 32-byte secret without echoing or printing in logs.
+- Git history rewrite executed via `git filter-branch`, force-pushed to GitHub `origin master`. Verified reachable history has `0` occurrences of the compromised value.
+- Missing auth configuration in `lib/auth.ts` now throws `NEON_AUTH_CONFIGURATION_ERROR` and fails closed.
 
-### 2. Workspace Ownership & Campaign Authorization
-- **Explicit Restaurant Workspace Creation (`POST /api/restaurants`)**:
-  - Requires valid Neon Auth operator session.
-  - Inserts restaurant entity into Neon PostgreSQL.
-  - Creates `RestaurantMembership(userId, restaurantId, role: 'OWNER')`.
-- **Campaign Mutation Guard (`POST /api/campaigns`)**:
-  - Enforces `getAuthenticatedOperator(req)` session.
-  - Enforces `db.getMembership(operator.id, restaurantId)` membership check.
-  - Returns `401 UNAUTHORIZED` if unauthenticated and `403 FORBIDDEN_WORKSPACE` if operator lacks membership in the target venue.
+### 2. Workspace Ownership & Cross-Workspace Isolation
+- Cross-workspace isolation verified via automated security tests:
+  - Operator A (OWNER of Restaurant A) can publish to Restaurant A, receives `403 FORBIDDEN_WORKSPACE` when targeting Restaurant B.
+  - Operator B (OWNER of Restaurant B) can publish to Restaurant B, receives `403 FORBIDDEN_WORKSPACE` when targeting Restaurant A.
+  - Anonymous callers receive `401 UNAUTHORIZED`.
+- Removed `rest_01` fallback from `handlePublishCampaign`: if no active workspace is selected, publishing is blocked and opens the workspace creation modal.
 
-### 3. Identity Model & Zero Auto-Merge
-- `users.restaurant_auth_user_id`: Stores external Neon Auth user ID.
-- `users.flynet_user_id`: Stores external Flynet member ID.
-- Resolvers (`resolveOrCreateRestaurantUser`, `resolveOrCreateFlynetDinerUser`) are isolated by external ID; email equality never conflates operator privileges with diner credentials.
-
----
-
-## Workspace & Build Health
-- **Location**: `C:\Users\HomePC\Desktop\BlackPalate`
-- **Toolchain**: Next.js 14.2.14, React 18.3.1, `@flynetdev/core` (0.8.1), `@neondatabase/serverless` (1.1.0), `framer-motion` (13.4.0), `lucide-react` (1.47.0), TypeScript 5.6.2.
+### 3. Automated Test Suites & Build Health
+- `npm run test:unit`: **15/15 PASS** (`campaign.test.mjs` + `qualification.test.mjs`).
+- `npm run test:audit`: **18/18 PASS** (`audit.test.mjs` with IDOR, duplicate prevention, secret scan, fail-closed auth, cross-workspace mutex, and reward integrity checks).
+- `npm run test:integration`: **5/5 PASS** (`db.integration.test.mjs` against live Neon PostgreSQL).
+- **Total Tests**: **38/38 PASS** (`npm test`).
 - **Production URL**: `https://blackpalate.vercel.app`
-- **Public GitHub Repo**: `https://github.com/Techkeyy/BlackPalate`
-- **Build Status**: `npm run build` PASS (17 static and dynamic routes compiled).
-- **Automated Test Suites**:
-  - `npm run test:unit`: **15/15 PASS** (`campaign.test.mjs` + `qualification.test.mjs`).
-  - `npm run test:audit`: **14/14 PASS** (`audit.test.mjs` security, IDOR, and auth isolation tests).
-  - `npm run test:integration`: **5/5 PASS** (`db.integration.test.mjs` against live Neon PostgreSQL).
-  - **Total Tests**: **34/34 PASS** (`npm test`).
-- **Doctor Script**: `npm run doctor` PASS.
-- **Secret Guardrail**: `ACTIVE` (`.claude/settings.json`).
+- **Public GitHub Repo**: `https://github.com/Techkeyy/BlackPalate` (Branch: `master`, Commit: `fc6e991`)
 
 ---
 
@@ -76,9 +63,9 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 |---|---|---|---|---|
 | **Public Host & Callback** | `https://blackpalate.vercel.app` | Vercel production | **INTEGRATION PROVEN** | Live & verified |
 | **Relational Persistence** | `lib/db/repository.ts` | Neon PostgreSQL | **INTEGRATION PROVEN** | Provisioned (`neon-beige-forest`) & verified |
-| **User & Account System** | `lib/auth.ts` + `/api/auth/me` | Neon DB / Cookies | **INTEGRATION PROVEN** | Internal User model + dual identity mapping |
-| **Workspace Authorization** | `POST /api/campaigns` | Neon DB / Session | **INTEGRATION PROVEN** | RestaurantMembership checked on all mutations |
-| **User-Centric Applications** | `POST /api/campaigns/[id]/apply` | Neon DB / Session | **INTEGRATION PROVEN** | Owned by internal userId, not raw Flynet ID |
+| **Managed Restaurant Auth** | `lib/auth.ts` + `/api/auth/neon` | Neon Auth SDK | **IMPLEMENTED (UAT PENDING)** | Real endpoint wired; awaiting Google OAuth UAT |
+| **Workspace Authorization** | `POST /api/campaigns` | Neon DB / Session | **INTEGRATION PROVEN** | Strict membership checks; cross-workspace mutex verified |
+| **User-Centric Applications** | `POST /api/campaigns/[id]/apply` | Neon DB / Session | **INTEGRATION PROVEN** | Owned by internal `userId`, not raw Flynet ID |
 | **Deterministic Qualification Engine** | `lib/qualification.ts` | Pure Logic | **COMPONENT PROVEN** | 5/5 unit tests pass |
 | **Product Lifecycle & Capacity Rules** | `lib/campaign.test.mjs` | Pure Logic / DB | **COMPONENT PROVEN** | 10/10 unit tests pass |
 | **AI Campaign Architect & Synthesis** | `lib/ai.ts` | DeepSeek / OpenAI | **COMPONENT PROVEN** | Operational with heuristic fallbacks & zero emoji |
