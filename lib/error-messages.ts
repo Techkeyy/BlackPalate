@@ -137,7 +137,7 @@ export function mapErrorToUserMessage(rawError: any, context?: 'campaign_publish
   if (normalized.includes('FLYNET') || normalized.includes('BLACKBIRD') || normalized.includes('MAKER') || normalized.includes('APPROVAL')) {
     return {
       title: 'Blackbird Verification Unavailable',
-      message: 'Blackbird dining history verification is temporarily unavailable while access activation is in progress. Your place has not been changed.',
+      message: 'Blackbird dining verification is temporarily unavailable. Your place has not been changed.',
       actionText: 'Try Again in a Moment',
       actionType: 'RETRY',
       isPreserved: true,

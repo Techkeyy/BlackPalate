@@ -119,6 +119,13 @@ BlackPalate is a marketplace for paid restaurant tasting and culinary research o
 - Flynet labels neutralized ("Flynet: Connecting", "Integration Pending"); approval-blocked copy removed from UI.
 - Do NOT call finished: Google UAT + Flynet proofs still pending.
 
+## Directive 002I Live Network Demo (2026-09-19)
+- Real OAuth stays primary; secondary demo is observational only (GET-only, no db imports, no applications/slots/feedback/rewards).
+- Feed truth: venue `/check_ins` is anonymized (CheckIn = id/location/createdAt only, no actor) → no cohort grouping; demo shows event → venue correlation → attendance predicate + illustrative rule preview on network sample via the real engine. Sanitizer strips identity/contact/precise-location fields even if added upstream (5/5 tests).
+- Server `GET /api/demo/live-feed` (public, 90s cache, PII-stripped) proven live: 200, `flynet-production`, real venue + check-ins. Bounded multi-page scan (page-0 venues were location-less at probe time).
+- UI: `live-demo` view (LIVE badge, venue, anonymized activity, campaign picker + honest MATCH/NO_MATCH, predicate demo, illustrative preview labeled, proof badge, Continue with Blackbird always present); entry under diner connect with region-neutral copy. Status now "Flynet API: Live" + member-login distinction; approval copy gone.
+- Reward still BLOCKED (0 FLY). Do NOT call finished: member OAuth UAT pending.
+
 ## Next Recommended Action
 Awaiting Blackbird admin approval in Flynet Make. Once approved:
 1. Generate Staging API key (`fly_test_...`) and OAuth Client ID / Secret with redirect URI `https://blackpalate.vercel.app/api/auth/callback`.

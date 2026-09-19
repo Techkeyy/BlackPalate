@@ -38,6 +38,12 @@ import {
   UserSafeError,
 } from '@/lib/error-messages';
 import { authClient } from '@/lib/auth/client';
+import { evaluateDinerQualification, QualificationRule } from '@/lib/qualification';
+import {
+  matchCampaignVenue,
+  sameVenueAttendance,
+  LiveDemoCheckIn,
+} from '@/lib/live-demo';
 
 interface Question {
   id: string;
@@ -90,7 +96,7 @@ interface Application {
 
 export default function BlackPalateApp() {
   const [activeNav, setActiveNav] = useState<
-    'landing' | 'discover' | 'my-tastings' | 'create-tasting' | 'campaign-studio' | 'diagnostics'
+    'landing' | 'discover' | 'my-tastings' | 'create-tasting' | 'campaign-studio' | 'diagnostics' | 'live-demo'
   >('landing');
 
   // Application Data States
@@ -182,6 +188,18 @@ export default function BlackPalateApp() {
   const [studioSubmissions, setStudioSubmissions] = useState<any[]>([]);
   const [synthesisMode, setSynthesisMode] = useState<string | null>(null);
   const [loadingSynthesis, setLoadingSynthesis] = useState(false);
+
+  // Live Network Demo (observational only — never mutates marketplace state)
+  const [liveFeed, setLiveFeed] = useState<{
+    source: string;
+    fetchedAt: string;
+    venue: any;
+    checkIns: LiveDemoCheckIn[];
+  } | null>(null);
+  const [liveFeedLoading, setLiveFeedLoading] = useState(false);
+  const [liveFeedError, setLiveFeedError] = useState<UserSafeError | null>(null);
+  const [demoCheckInId, setDemoCheckInId] = useState<string | null>(null);
+  const [demoCampaignId, setDemoCampaignId] = useState<string | null>(null);
 
   // Restaurant areas require a signed-in RESTAURANT operator; anything else sees the auth gate.
   const needsRestaurantGate =
@@ -348,6 +366,34 @@ export default function BlackPalateApp() {
       setLoading(false);
     }
   }
+
+  // Live Network Demo feed (read-only; creates no applications, slots, or rewards)
+  async function loadLiveFeed() {
+    setLiveFeedLoading(true);
+    setLiveFeedError(null);
+    try {
+      const res = await fetch('/api/demo/live-feed');
+      const data = await res.json();
+      if (data.ok && data.checkIns) {
+        setLiveFeed(data);
+        if (data.checkIns.length > 0 && !demoCheckInId) {
+          setDemoCheckInId(data.checkIns[0].id);
+        }
+      } else {
+        setLiveFeedError(mapErrorToUserMessage(data, 'fetch_data'));
+      }
+    } catch (err) {
+      setLiveFeedError(mapErrorToUserMessage(err, 'fetch_data'));
+    } finally {
+      setLiveFeedLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activeNav === 'live-demo' && !liveFeed && !liveFeedLoading) {
+      loadLiveFeed();
+    }
+  }, [activeNav]);
 
   // Handle Restaurant Operator Login (Managed Neon Auth via official client)
   async function handleOperatorLogin() {
@@ -1046,17 +1092,18 @@ export default function BlackPalateApp() {
                     gap: '6px',
                     color: '#A8A29E',
                   }}
-                  title="Flynet Blackbird integration status"
+                  title="Flynet production API status"
                 >
                   <span
                     style={{
                       width: '6px',
                       height: '6px',
                       borderRadius: '50%',
-                      backgroundColor: '#F59E0B',
+                      backgroundColor: '#10B981',
+                      boxShadow: '0 0 8px rgba(16, 185, 129, 0.5)',
                     }}
                   />
-                  <span>Flynet: Connecting</span>
+                  <span>Flynet API: Live</span>
                 </div>
               </div>
             )}
@@ -2784,12 +2831,13 @@ export default function BlackPalateApp() {
                     marginBottom: '4px',
                   }}
                 >
-                  <AlertCircle size={15} color="#F59E0B" />
-                  Flynet Status: Integration Pending
+                  <AlertCircle size={15} color="#10B981" />
+                  Flynet API: Live — Blackbird Member Login where supported
                 </div>
                 <div style={{ color: '#FDE68A', fontSize: '12px', lineHeight: '1.5' }}>
-                  Blackbird dining history verification is being connected.
-                  Tasting qualification unlocks once live integration proofs pass.
+                  Live Flynet dining activity is connected. Personal qualification
+                  needs a Blackbird member sign-in; a live network demo is available
+                  where Passport sign-in is unsupported.
                 </div>
               </div>
 
@@ -2912,6 +2960,34 @@ export default function BlackPalateApp() {
                 >
                   Connect Blackbird Account
                 </InteractiveButton>
+                <p
+                  style={{
+                    fontSize: '12px',
+                    color: '#78716C',
+                    margin: '16px 0 0 0',
+                    lineHeight: '1.6',
+                  }}
+                >
+                  Blackbird Passport may not support every phone region yet.
+                  <br />
+                  Explore how BlackPalate uses live Flynet dining activity without
+                  signing into a member account:{' '}
+                  <button
+                    onClick={() => setActiveNav('live-demo')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      color: '#F59E0B',
+                      fontSize: '12px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    Try Live Flynet Demo
+                  </button>
+                </p>
               </div>
             ) : userApplications.length === 0 ? (
               <div
@@ -5011,6 +5087,105 @@ export default function BlackPalateApp() {
       )}
 
       {/* ========================================================================= */}
+      {/* VIEW: LIVE FLYNET NETWORK DEMO (observational only)                   */}
+      {/* ========================================================================= */}
+      {activeNav === 'live-demo' && (
+        <ErrorBoundary fallbackTitle="Live Demo Unavailable" onReset={loadLiveFeed}>
+          <main
+            style={{
+              maxWidth: '1100px',
+              margin: '0 auto',
+              padding: '40px 24px 80px',
+            }}
+          >
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 14px',
+                borderRadius: '20px',
+                backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                border: '1px solid rgba(16, 185, 129, 0.4)',
+                fontSize: '12px',
+                fontWeight: '800',
+                letterSpacing: '0.08em',
+                color: '#10B981',
+                marginBottom: '16px',
+              }}
+            >
+              <span
+                style={{
+                  width: '7px',
+                  height: '7px',
+                  borderRadius: '50%',
+                  backgroundColor: '#10B981',
+                  boxShadow: '0 0 8px rgba(16, 185, 129, 0.6)',
+                }}
+              />
+              LIVE · FLYNET PRODUCTION
+            </div>
+            <h2
+              style={{
+                fontSize: '28px',
+                fontWeight: '800',
+                margin: '0 0 6px 0',
+                color: '#F5F5F4',
+              }}
+            >
+              Live Flynet Network Demo
+            </h2>
+            <p style={{ fontSize: '14px', color: '#A8A29E', margin: '0 0 8px 0', maxWidth: '720px', lineHeight: 1.6 }}>
+              Real anonymized dining activity from the Flynet production network,
+              interpreted by BlackPalate. This is a demonstration only — it is not
+              a personal member account and creates no applications, slots, or rewards.
+            </p>
+
+            {liveFeedLoading ? (
+              <p style={{ color: '#A8A29E', fontSize: '14px', padding: '32px 0' }}>
+                Loading live Flynet activity...
+              </p>
+            ) : liveFeedError ? (
+              <CalloutAlert error={liveFeedError} onAction={loadLiveFeed} />
+            ) : liveFeed ? (
+              <LiveDemoBody
+                feed={liveFeed}
+                campaigns={campaigns}
+                demoCheckInId={demoCheckInId}
+                setDemoCheckInId={setDemoCheckInId}
+                demoCampaignId={demoCampaignId}
+                setDemoCampaignId={setDemoCampaignId}
+              />
+            ) : null}
+
+            <div
+              style={{
+                marginTop: '32px',
+                padding: '24px',
+                backgroundColor: '#121212',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '12px',
+                textAlign: 'center',
+              }}
+            >
+              <p style={{ fontSize: '13px', color: '#A8A29E', margin: '0 0 16px 0' }}>
+                Have a supported Blackbird Passport? Get your personal verified
+                dining history instead.
+              </p>
+              <InteractiveButton
+                onClick={() => {
+                  window.location.href = '/api/auth/login';
+                }}
+                variant="primary"
+              >
+                Continue with Blackbird
+              </InteractiveButton>
+            </div>
+          </main>
+        </ErrorBoundary>
+      )}
+
+      {/* ========================================================================= */}
       {/* VIEW 6: SYSTEM INTEGRATION DIAGNOSTICS                                    */}
       {/* ========================================================================= */}
       {activeNav === 'diagnostics' && (
@@ -5215,7 +5390,7 @@ export default function BlackPalateApp() {
                       fontWeight: '700',
                     }}
                   >
-                    IMPLEMENTED / INTEGRATION PENDING
+                    LIVE / PRODUCTION PROVEN
                   </td>
                 </tr>
               </tbody>
@@ -5403,6 +5578,273 @@ export default function BlackPalateApp() {
           </div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function LiveDemoBody({
+  feed,
+  campaigns,
+  demoCheckInId,
+  setDemoCheckInId,
+  demoCampaignId,
+  setDemoCampaignId,
+}: {
+  feed: { source: string; fetchedAt: string; venue: any; checkIns: LiveDemoCheckIn[] };
+  campaigns: Campaign[];
+  demoCheckInId: string | null;
+  setDemoCheckInId: (id: string) => void;
+  demoCampaignId: string | null;
+  setDemoCampaignId: (id: string) => void;
+}) {
+  const checkIns = feed.checkIns || [];
+  const selectedCheckIn =
+    checkIns.find((c) => c.id === demoCheckInId) || checkIns[0] || null;
+  const demoCampaigns = campaigns.filter((c) => c.isDemo);
+  const selectable = demoCampaigns.length > 0 ? demoCampaigns : campaigns;
+  const selectedCampaign =
+    selectable.find((c) => c.id === demoCampaignId) || selectable[0] || null;
+
+  const match = selectedCheckIn && selectedCampaign
+    ? matchCampaignVenue(selectedCheckIn, {
+        restaurantId: selectedCampaign.restaurantId,
+        restaurantName: selectedCampaign.restaurantName,
+        targetCuisines: selectedCampaign.targetCuisines,
+        restaurantCuisine: selectedCampaign.restaurantCuisine,
+      })
+    : null;
+
+  const predicate = selectedCheckIn
+    ? sameVenueAttendance(selectedCheckIn.location.id, feed.venue.location.id)
+    : null;
+
+  // Illustrative rule evaluation on the anonymized network sample (NOT member history).
+  let preview: ReturnType<typeof evaluateDinerQualification> | null = null;
+  if (selectedCampaign && checkIns.length > 0) {
+    const rules: QualificationRule[] = [
+      {
+        type: 'MIN_TOTAL_CHECKINS',
+        threshold: selectedCampaign.minTotalCheckIns,
+        description: `At least ${selectedCampaign.minTotalCheckIns} verified dining check-in(s)`,
+      },
+    ];
+    if (selectedCampaign.minCuisineVisits > 0 && selectedCampaign.targetCuisines.length > 0) {
+      rules.push({
+        type: 'MIN_CUISINE_VISITS',
+        cuisine: selectedCampaign.targetCuisines[0],
+        threshold: selectedCampaign.minCuisineVisits,
+        description: `At least ${selectedCampaign.minCuisineVisits} verified visit(s) to ${selectedCampaign.targetCuisines.join('/')}`,
+      });
+    }
+    const restaurantMap = new Map();
+    for (const ci of checkIns) {
+      restaurantMap.set(ci.location.restaurant.id, {
+        id: ci.location.restaurant.id,
+        name: ci.location.restaurant.name || '',
+        cuisine: ci.location.restaurant.cuisine,
+      });
+    }
+    preview = evaluateDinerQualification(checkIns as any, rules, restaurantMap);
+  }
+
+  const card: React.CSSProperties = {
+    backgroundColor: '#121212',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    borderRadius: '12px',
+    padding: '20px 22px',
+    marginBottom: '20px',
+  };
+  const label: React.CSSProperties = {
+    fontSize: '11px',
+    fontWeight: '800',
+    letterSpacing: '0.08em',
+    color: '#78716C',
+    marginBottom: '10px',
+  };
+
+  return (
+    <div style={{ marginTop: '24px' }}>
+      <div style={card}>
+        <div style={label}>LIVE VENUE · {feed.source.toUpperCase()}</div>
+        <div style={{ fontSize: '18px', fontWeight: '800', color: '#F5F5F4' }}>
+          {feed.venue.restaurant.name || 'Unnamed venue'}
+        </div>
+        <div style={{ fontSize: '13px', color: '#A8A29E', marginTop: '4px' }}>
+          {[feed.venue.location.name, feed.venue.location.neighborhood, feed.venue.location.region]
+            .filter(Boolean)
+            .join(' · ')}
+          {feed.venue.restaurant.cuisine.length > 0 &&
+            ` · ${feed.venue.restaurant.cuisine.join(', ')}`}
+        </div>
+        <div style={{ fontSize: '12px', color: '#78716C', marginTop: '8px' }}>
+          {checkIns.length} recent verified check-in{checkIns.length === 1 ? '' : 's'} · feed at{' '}
+          {new Date(feed.fetchedAt).toLocaleString()}
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={label}>RECENT VERIFIED DINING ACTIVITY (ANONYMIZED)</div>
+        {checkIns.map((ci) => (
+          <button
+            key={ci.id}
+            onClick={() => setDemoCheckInId(ci.id)}
+            style={{
+              display: 'block',
+              width: '100%',
+              textAlign: 'left',
+              padding: '10px 12px',
+              marginBottom: '8px',
+              borderRadius: '8px',
+              border:
+                selectedCheckIn?.id === ci.id
+                  ? '1px solid rgba(245, 158, 11, 0.5)'
+                  : '1px solid rgba(255, 255, 255, 0.08)',
+              backgroundColor: selectedCheckIn?.id === ci.id ? '#1A1408' : '#0C0C0C',
+              color: '#D6D3D1',
+              fontSize: '13px',
+              cursor: 'pointer',
+            }}
+          >
+            <strong style={{ color: '#F5F5F4' }}>
+              {ci.location.restaurant.name || 'Unnamed venue'}
+            </strong>
+            {' · '}
+            {(ci.location.restaurant.cuisine || []).join(', ') || 'Cuisine n/a'}
+            <br />
+            <span style={{ color: '#78716C', fontSize: '12px' }}>
+              {[ci.location.name, ci.location.neighborhood].filter(Boolean).join(' · ')}
+              {' · '}
+              {ci.createdAt ? new Date(ci.createdAt).toLocaleString() : 'time n/a'}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div style={card}>
+        <div style={label}>CAMPAIGN MATCHING (SELECT A DEMO TASTING)</div>
+        {selectable.length === 0 ? (
+          <p style={{ fontSize: '13px', color: '#A8A29E', margin: 0 }}>
+            No tasting campaigns available right now.
+          </p>
+        ) : (
+          <select
+            value={selectedCampaign?.id || ''}
+            onChange={(e) => setDemoCampaignId(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              backgroundColor: '#0C0C0C',
+              color: '#F5F5F4',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              fontSize: '13px',
+              marginBottom: '12px',
+            }}
+          >
+            {selectable.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.title}
+              </option>
+            ))}
+          </select>
+        )}
+        {selectedCampaign && (
+          <div style={{ fontSize: '13px', color: '#A8A29E', lineHeight: 1.6 }}>
+            Requirement: {selectedCampaign.minTotalCheckIns}+ verified visit(s)
+            {selectedCampaign.minCuisineVisits > 0 &&
+              ` · ${selectedCampaign.minCuisineVisits}+ ${selectedCampaign.targetCuisines.join('/')} visit(s)`}
+            {selectedCampaign.mustBeNewToVenue && ' · first-time guests only'}
+          </div>
+        )}
+        {match && selectedCampaign && (
+          <div
+            style={{
+              marginTop: '12px',
+              padding: '12px 14px',
+              borderRadius: '8px',
+              backgroundColor:
+                match.verdict === 'MATCH' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+              border:
+                match.verdict === 'MATCH'
+                  ? '1px solid rgba(16, 185, 129, 0.3)'
+                  : '1px solid rgba(245, 158, 11, 0.3)',
+              fontSize: '13px',
+              color: '#D6D3D1',
+            }}
+          >
+            Campaign venue match:{' '}
+            <strong style={{ color: match.verdict === 'MATCH' ? '#10B981' : '#F59E0B' }}>
+              {match.verdict === 'MATCH' ? 'MATCH' : 'NOT A MATCH'}
+            </strong>
+            <br />
+            <span style={{ color: '#A8A29E', fontSize: '12px' }}>{match.reason}</span>
+            {match.cuisineOverlap.length > 0 && (
+              <span style={{ color: '#A8A29E', fontSize: '12px' }}>
+                <br />
+                Shared cuisine signal: {match.cuisineOverlap.join(', ')} (signal only — not qualification).
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={card}>
+        <div style={label}>ATTENDANCE DEMONSTRATION · LIVE NETWORK DEMONSTRATION</div>
+        {predicate && selectedCheckIn ? (
+          <div style={{ fontSize: '13px', color: '#D6D3D1', lineHeight: 1.7 }}>
+            Verified Flynet activity detected
+            <br />
+            Restaurant: {selectedCheckIn.location.restaurant.name || 'Unnamed venue'}
+            <br />
+            Same-venue predicate <code>{predicate.predicate}</code>:{' '}
+            <strong style={{ color: predicate.verified ? '#10B981' : '#EF4444' }}>
+              {predicate.verified ? 'VERIFIED' : 'NOT A MATCH'}
+            </strong>
+            <br />
+            <span style={{ color: '#78716C', fontSize: '12px' }}>
+              This is the exact matching rule BlackPalate applies against a real
+              campaign venue — shown here against the live venue, not your attendance.
+            </span>
+          </div>
+        ) : (
+          <p style={{ fontSize: '13px', color: '#A8A29E', margin: 0 }}>
+            Select a live check-in above to run the attendance check.
+          </p>
+        )}
+      </div>
+
+      <div style={card}>
+        <div style={label}>QUALIFICATION ENGINE PREVIEW (ILLUSTRATIVE)</div>
+        <p style={{ fontSize: '12px', color: '#F59E0B', margin: '0 0 12px 0', lineHeight: 1.6 }}>
+          Illustrative evaluation on this anonymized network sample — not member
+          history. Member-specific qualification requires Blackbird OAuth.
+        </p>
+        {preview ? (
+          <div style={{ fontSize: '13px', color: '#D6D3D1', lineHeight: 1.7 }}>
+            {preview.ruleEvaluations.map((r, i) => (
+              <div key={i}>
+                {r.passed ? 'PASS' : 'NOT MET'} — {r.rule.description} ({r.details})
+              </div>
+            ))}
+            <div style={{ marginTop: '8px', color: '#A8A29E' }}>{preview.explanation}</div>
+          </div>
+        ) : (
+          <p style={{ fontSize: '13px', color: '#A8A29E', margin: 0 }}>
+            Select a demo tasting to preview its rules against the live sample.
+          </p>
+        )}
+      </div>
+
+      <div style={card}>
+        <div style={label}>LIVE PROOF</div>
+        <div style={{ fontSize: '13px', color: '#A8A29E', lineHeight: 1.8 }}>
+          Flynet production · Restaurant discovery: Live · Network check-ins: Live
+          <br />
+          Member OAuth: Available where Passport sign-in is supported
+          <br />
+          Rewards: App balance currently 0 FLY
+        </div>
+      </div>
     </div>
   );
 }

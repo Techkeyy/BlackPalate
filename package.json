@@ -11,7 +11,8 @@
     "test:audit": "node lib/audit.test.mjs",
     "test:integration": "node lib/db.integration.test.mjs",
     "test:error-handling": "node --test lib/error-handling.test.mjs",
-    "test": "node lib/campaign.test.mjs && node lib/qualification.test.mjs && node lib/audit.test.mjs && node lib/db.integration.test.mjs && node --test lib/error-handling.test.mjs",
+    "test:live-demo": "node --test lib/live-demo.test.mjs",
+    "test": "node lib/campaign.test.mjs && node lib/qualification.test.mjs && node lib/audit.test.mjs && node lib/db.integration.test.mjs && node --test lib/error-handling.test.mjs && node --test lib/live-demo.test.mjs",
     "migrate": "node scripts/migrate.mjs",
     "doctor": "node scripts/doctor.mjs"
   },
