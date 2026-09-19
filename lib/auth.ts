@@ -30,6 +30,57 @@ export interface AuthenticatedOperatorContext {
   memberships: RestaurantMembership[];
 }
 
+type NeonSessionLookup = {
+  user: {
+    id: string;
+    email?: string | null;
+    name?: string | null;
+    displayName?: string | null;
+    image?: string | null;
+    avatarUrl?: string | null;
+  };
+  source: 'server_adapter' | 'request_get_session';
+};
+
+function extractNeonUser(sessionResult: unknown): NeonSessionLookup['user'] | null {
+  const payload = (sessionResult as any)?.data || sessionResult;
+  const user = payload?.user || payload?.session?.user;
+  return user && typeof user.id === 'string' ? user : null;
+}
+
+/**
+ * Read the managed Neon session from the current request context. The Next
+ * adapter is the primary path; the same-origin get-session request is a
+ * narrow fallback that forwards the incoming cookies when the route handler's
+ * request context has not been populated for a nested server call.
+ */
+async function getNeonSessionFromRequest(req: Request): Promise<NeonSessionLookup | null> {
+  const adapterResult = await neonAuth.getSession().catch(() => null);
+  const adapterUser = extractNeonUser(adapterResult);
+  if (adapterUser) return { user: adapterUser, source: 'server_adapter' };
+
+  const cookieHeader = req.headers.get('cookie') || '';
+  if (!cookieHeader.includes('__Secure-neon-auth')) return null;
+
+  try {
+    const sessionUrl = new URL('/api/auth/get-session', req.url);
+    const headers = new Headers();
+    headers.set('cookie', cookieHeader);
+    headers.set('origin', req.headers.get('origin') || sessionUrl.origin);
+    const response = await fetch(sessionUrl, {
+      method: 'GET',
+      headers,
+      cache: 'no-store',
+    });
+    if (!response.ok) return null;
+    const responseData = await response.json().catch(() => null);
+    const requestUser = extractNeonUser(responseData);
+    return requestUser ? { user: requestUser, source: 'request_get_session' } : null;
+  } catch {
+    return null;
+  }
+}
+
 export type FlynetUserResolutionErrorKind =
   | 'database_unavailable'
   | 'database_query_failed'
@@ -72,23 +123,18 @@ export async function getAuthenticatedOperator(req: Request): Promise<Authentica
   let neonSessionPresent = false;
   try {
     // 1. Validate session with Neon Auth
-    const sessionRes = await neonAuth.getSession({
-      headers: req.headers,
-    } as any).catch(() => null);
-
-    const sessionData = (sessionRes as any)?.data || sessionRes;
-    const neonUser = sessionData?.user || sessionData?.session?.user;
+    const neonSession = await getNeonSessionFromRequest(req);
+    const neonUser = neonSession?.user || null;
     neonSessionPresent = Boolean(neonUser?.id);
 
     if (!neonUser || !neonUser.id) {
-      // Also inspect direct Neon session cookie if present
-      const cookieHeader = req.headers.get('cookie') || '';
       logOAuthPhase('restaurant_auth_resolution', {
         neonSessionPresent: false,
         operatorResolved: false,
         roleRestaurant: false,
         membershipFound: false,
         workspaceFound: false,
+        sessionSource: 'none',
       });
       return null;
     }
@@ -110,6 +156,7 @@ export async function getAuthenticatedOperator(req: Request): Promise<Authentica
       roleRestaurant: true,
       membershipFound: memberships.length > 0,
       workspaceFound: memberships.length > 0,
+      sessionSource: neonSession?.source || 'none',
     });
 
     return {

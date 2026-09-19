@@ -379,6 +379,7 @@ export default function BlackPalateApp() {
   async function loadData() {
     setLoading(true);
     setFetchError(null);
+    setAuthLoading(true);
     let sessionOutcome: { authenticated: boolean; role: 'RESTAURANT' | 'DINER' | null } = {
       authenticated: false,
       role: null,
@@ -393,10 +394,20 @@ export default function BlackPalateApp() {
         setFetchError(mapErrorToUserMessage(campData, 'fetch_data'));
       }
 
-      // 2. Fetch authenticated session (authoritative; drives authLoading)
-      setAuthLoading(true);
+      // 2. Compare the provider session boundary before the application session.
+      // Neither response body is persisted here; /api/auth/me remains authoritative
+      // for the combined RESTAURANT/DINER identity.
       try {
-        const meRes = await fetch('/api/auth/me').catch(() => null);
+        const neonSessionRes = await fetch('/api/auth/get-session', {
+          credentials: 'include',
+          cache: 'no-store',
+        }).catch(() => null);
+        if (neonSessionRes?.ok) await neonSessionRes.json().catch(() => null);
+
+        const meRes = await fetch('/api/auth/me', {
+          credentials: 'include',
+          cache: 'no-store',
+        }).catch(() => null);
         if (meRes && meRes.ok) {
           const meData = await meRes.json();
           if (meData.authenticated) {
@@ -1265,25 +1276,6 @@ export default function BlackPalateApp() {
               </div>
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button
-                  onClick={() => handleOperatorLogin()}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '6px',
-                    backgroundColor: '#181818',
-                    color: '#F59E0B',
-                    border: '1px solid rgba(245, 158, 11, 0.3)',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    fontWeight: '700',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  <Utensils size={13} />
-                  Restaurant Sign In
-                </button>
                 <div
                   style={{
                     padding: '6px 10px',
