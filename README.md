@@ -120,9 +120,6 @@ and error-handling tests. Run `npm test` to execute the supported suite.
   journey.
 - The Flynet app wallet balance observed during the build was 0 FLY, so no live
   reward issuance is claimed.
-- AI provider credentials are not required for the submission. Deterministic
-  drafting and synthesis fallbacks remain available when provider keys are
-  absent.
 - The isolated Neon integration suite skips when `TEST_DATABASE_URL` is not
   configured. It never falls back to the production `DATABASE_URL`.
 
@@ -147,9 +144,6 @@ Provide the following variable types in `.env.local`:
 - Neon Auth base URL and cookie secret;
 - hosted PostgreSQL `DATABASE_URL`;
 - an isolated `TEST_DATABASE_URL` only when running real integration tests.
-
-The optional `DEEPSEEK_API_KEY` and `OPENAI_API_KEY` variables are not required
-for the core product.
 
 ### Check and run
 
