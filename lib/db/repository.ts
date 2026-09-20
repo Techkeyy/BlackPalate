@@ -634,7 +634,12 @@ export const db = {
           WHERE c.id = ${id}
           LIMIT 1
         `;
-        return rows?.[0] ? mapCampaignRow(rows[0]) : null;
+        if (rows?.[0]) return mapCampaignRow(rows[0]);
+
+        // Keep every campaign consumer aligned with the authoritative list
+        // query if a provider read returns no direct row for an existing ID.
+        const campaigns = await this.getCampaigns();
+        return campaigns.find(campaign => campaign.id === id) || null;
       } catch (err: any) {
         if (process.env.NODE_ENV === 'production') {
           throw new Error(`Database query failed: ${err.message}`);
