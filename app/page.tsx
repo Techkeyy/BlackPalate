@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Utensils,
@@ -117,11 +117,27 @@ interface RestaurantApplication {
 }
 
 type TastingQualificationState = {
-  status: 'loading' | 'qualified' | 'not_qualified' | 'error' | 'unauthenticated' | 'already_applied';
+  status:
+    | 'loading'
+    | 'qualified'
+    | 'not_qualified'
+    | 'signed_out'
+    | 'campaign_not_found'
+    | 'provider_error'
+    | 'network_error'
+    | 'server_error'
+    | 'already_applied';
   qualified?: boolean;
   historyAvailable?: boolean;
   checkInsCount?: number;
+  cuisineVisits?: number;
   reasons?: string[];
+  ruleResults?: Array<{
+    description: string;
+    passed: boolean;
+    actualValue?: number;
+    details: string;
+  }>;
   message?: string;
 };
 export default function BlackPalateApp() {
@@ -135,6 +151,7 @@ export default function BlackPalateApp() {
   const [selectedTasting, setSelectedTasting] = useState<Campaign | null>(null);
   const [tastingQualification, setTastingQualification] = useState<TastingQualificationState | null>(null);
   const [qualificationRetry, setQualificationRetry] = useState(0);
+  const qualificationRequestKey = useRef<string | null>(null);
   const [userApplications, setUserApplications] = useState<Application[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [sessionUser, setSessionUser] = useState<any>(null);
@@ -585,15 +602,25 @@ export default function BlackPalateApp() {
     }
   }
 
+  function openTasting(campaign: Campaign) {
+    setSelectedTasting(campaign);
+    setTastingQualification({ status: 'loading' });
+    setQualificationRetry(0);
+    qualificationRequestKey.current = null;
+    setJoinError(null);
+  }
   // Handle joining a tasting. The server re-checks identity, history, rules,
   // capacity, and duplicate application state authoritatively.
   async function handleJoinTasting(campaign: Campaign) {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || authRole !== 'DINER') {
       const authErr = mapErrorToUserMessage('AUTH_REQUIRED', 'join_tasting');
       setJoinError(authErr);
       return;
     }
 
+    if (tastingQualification?.status !== 'qualified') {
+      return;
+    }
     setIsJoiningTasting(true);
     setJoinError(null);
     try {
@@ -633,7 +660,7 @@ export default function BlackPalateApp() {
         setJoinError(null);
       } else if (data.code === 'FLYNET_UNAVAILABLE') {
         setTastingQualification({
-          status: 'error',
+          status: 'provider_error',
           historyAvailable: false,
           message: "We couldn't verify your dining history right now.",
         });
@@ -649,6 +676,10 @@ export default function BlackPalateApp() {
         setJoinError(userErr);
       }
     } catch (err: any) {
+      setTastingQualification({
+        status: 'network_error',
+        message: "We couldn't reach the qualification service right now.",
+      });
       const userErr = mapErrorToUserMessage(err, 'join_tasting');
       setJoinError(userErr);
     } finally {
@@ -658,38 +689,59 @@ export default function BlackPalateApp() {
 
   async function loadTastingQualification(campaignId: string) {
     setTastingQualification({ status: 'loading' });
+    console.info('[qualification] request_start', { campaignIdPresent: Boolean(campaignId) });
     try {
       const res = await fetch(`/api/campaigns/${campaignId}/qualification`, {
         credentials: 'include',
         cache: 'no-store',
       });
+      console.info('[qualification] response_status', res.status);
       const data = await res.json().catch(() => null);
-      if (data?.ok) {
+      const ruleResults = Array.isArray(data?.qualification?.ruleResults)
+        ? data.qualification.ruleResults
+        : [];
+      const cuisineRule = ruleResults.find((rule: any) =>
+        typeof rule?.description === 'string' &&
+        /visit/i.test(rule.description) &&
+        !/Blackbird|distinct restaurant/i.test(rule.description)
+      );
+
+      if (res.ok && data?.ok && typeof data.qualified === 'boolean') {
         setTastingQualification({
           status: data.qualified ? 'qualified' : 'not_qualified',
           qualified: Boolean(data.qualified),
           historyAvailable: data.historyAvailable !== false,
-          checkInsCount: Number(data.checkInsCount || 0),
+          checkInsCount: Number(data.checkInsCount ?? data.qualification?.totalCheckIns ?? 0),
+          cuisineVisits: Number(cuisineRule?.actualValue ?? 0),
+          ruleResults,
           reasons: Array.isArray(data.reasons) ? data.reasons : [],
         });
-      } else if (data?.code === 'UNAUTHORIZED') {
+      } else if (res.status === 401 || data?.code === 'UNAUTHORIZED') {
         setTastingQualification({
-          status: 'unauthenticated',
+          status: 'signed_out',
           message: 'Sign in with Blackbird to check your qualification.',
         });
-      } else if (data?.code === 'FLYNET_UNAVAILABLE') {
+      } else if (res.status === 404 || data?.code === 'NOT_FOUND') {
         setTastingQualification({
-          status: 'error',
+          status: 'campaign_not_found',
+          message: 'This tasting is no longer available.',
+        });
+      } else if (res.status === 503 || data?.code === 'FLYNET_UNAVAILABLE') {
+        setTastingQualification({
+          status: 'provider_error',
           historyAvailable: false,
           message: "We couldn't verify your dining history right now.",
         });
       } else {
-        setTastingQualification({ status: 'error', message: 'We could not evaluate this tasting right now.' });
+        setTastingQualification({
+          status: 'server_error',
+          message: 'We could not evaluate this tasting right now.',
+        });
       }
     } catch {
       setTastingQualification({
-        status: 'error',
-        message: "We couldn't verify your dining history right now.",
+        status: 'network_error',
+        message: "We couldn't reach the qualification service right now.",
       });
     }
   }
@@ -699,6 +751,20 @@ export default function BlackPalateApp() {
       setTastingQualification(null);
       return;
     }
+    if (authLoading) {
+      setTastingQualification({ status: 'loading' });
+      return;
+    }
+    if (!isAuthenticated || authRole !== 'DINER') {
+      setTastingQualification({
+        status: 'signed_out',
+        message: 'Sign in with Blackbird to check your qualification.',
+      });
+      return;
+    }
+    const requestKey = `${selectedTasting.id}:${qualificationRetry}:${authRole}`;
+    if (qualificationRequestKey.current === requestKey) return;
+    qualificationRequestKey.current = requestKey;
     const existing = userApplications.find(
       (application) => application.campaignId === selectedTasting.id && application.status !== 'REJECTED'
     );
@@ -707,8 +773,7 @@ export default function BlackPalateApp() {
       return;
     }
     loadTastingQualification(selectedTasting.id);
-  }, [selectedTasting?.id, userApplications, qualificationRetry]);
-
+  }, [selectedTasting?.id, qualificationRetry, isAuthenticated, authRole, authLoading, userApplications]);
   // Handle submitting feedback
   async function handleSubmitFeedback(e: React.FormEvent) {
     e.preventDefault();
@@ -1901,7 +1966,7 @@ export default function BlackPalateApp() {
                 {campaigns.slice(0, 3).map((camp) => (
                   <StaggerItem key={camp.id}>
                     <InteractiveCard
-                      onClick={() => setSelectedTasting(camp)}
+                      onClick={() => openTasting(camp)}
                       style={{
                         backgroundColor: '#121212',
                         border: '1px solid rgba(255, 255, 255, 0.08)',
@@ -2584,7 +2649,7 @@ export default function BlackPalateApp() {
                 return (
                   <InteractiveCard
                     key={camp.id}
-                    onClick={() => setSelectedTasting(camp)}
+                    onClick={() => openTasting(camp)}
                     style={{
                       backgroundColor: '#121212',
                       border: '1px solid rgba(255, 255, 255, 0.08)',
@@ -3026,7 +3091,7 @@ export default function BlackPalateApp() {
                   {selectedTasting.minTotalCheckIns > 0 && (
                     <li>{selectedTasting.minTotalCheckIns} verified Blackbird visit{selectedTasting.minTotalCheckIns === 1 ? '' : 's'}</li>
                   )}
-                  {selectedTasting.minDistinctVenues && selectedTasting.minDistinctVenues > 0 && (
+                  {selectedTasting.minDistinctVenues !== undefined && selectedTasting.minDistinctVenues > 0 && (
                     <li>{selectedTasting.minDistinctVenues} distinct verified restaurant visit{selectedTasting.minDistinctVenues === 1 ? '' : 's'}</li>
                   )}
                   {selectedTasting.minCuisineVisits > 0 && (
@@ -3051,29 +3116,49 @@ export default function BlackPalateApp() {
               )}
               {tastingQualification?.status === 'not_qualified' && (
                 <div role="status" style={{ backgroundColor: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '8px', padding: '14px', marginBottom: '18px', color: '#FDE68A', fontSize: '13px' }}>
-                  <strong>Not qualified for this tasting</strong>
-                  {tastingQualification.checkInsCount === 0 && <div style={{ marginTop: '4px' }}>You currently have no verified Blackbird dining history.</div>}
-                  {tastingQualification.reasons?.map((reason) => <div key={reason} style={{ marginTop: '4px' }}>{reason}</div>)}
+                  <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#F59E0B', marginBottom: '6px' }}>
+                    Your eligibility
+                  </div>
+                  <strong>Not qualified</strong>
+                  {selectedTasting.minTotalCheckIns > 0 && (
+                    <div style={{ marginTop: '6px' }}>
+                      {tastingQualification.checkInsCount ?? 0} of {selectedTasting.minTotalCheckIns} verified visits
+                    </div>
+                  )}
+                  {selectedTasting.minCuisineVisits > 0 && (
+                    <div style={{ marginTop: '4px' }}>
+                      {tastingQualification.cuisineVisits ?? 0} of {selectedTasting.minCuisineVisits} {selectedTasting.targetCuisines[0] || 'matching cuisine'} visits
+                    </div>
+                  )}
+                  {tastingQualification.checkInsCount === 0 && (
+                    <div style={{ marginTop: '6px' }}>You currently have 0 verified visits.</div>
+                  )}
+                  {tastingQualification.reasons?.map((reason) => (
+                    <div key={reason} style={{ marginTop: '4px' }}>{reason}</div>
+                  ))}
                 </div>
               )}
-              {tastingQualification?.status === 'error' && (
+              {['provider_error', 'network_error', 'server_error'].includes(tastingQualification?.status || '') && (
                 <CalloutAlert
                   type="warning"
-                  title="We couldn't verify your dining history right now"
-                  message="Your application was not changed. Try again in a moment."
+                  title={tastingQualification?.status === 'provider_error' ? 'Verification unavailable' : 'Qualification unavailable'}
+                  message={
+                    tastingQualification?.status === 'provider_error'
+                      ? 'Blackbird dining verification is temporarily unavailable. Try again in a moment.'
+                      : tastingQualification?.message || 'We could not evaluate this tasting right now.'
+                  }
                   actionText="Retry"
                   onAction={() => setQualificationRetry((value) => value + 1)}
                 />
               )}
-              {tastingQualification?.status === 'unauthenticated' && (
+              {tastingQualification?.status === 'campaign_not_found' && (
                 <CalloutAlert
                   type="info"
-                  title="Blackbird sign-in required"
-                  message="Sign in with Blackbird to check your qualification for this tasting."
+                  title="Tasting unavailable"
+                  message="This tasting is no longer available."
                 />
               )}
-
-              {joinError && tastingQualification?.status !== 'error' && (
+              {joinError && !['provider_error', 'network_error', 'server_error'].includes(tastingQualification?.status || '') && (
                 <CalloutAlert
                   error={joinError}
                   onDismiss={() => setJoinError(null)}
@@ -3084,8 +3169,16 @@ export default function BlackPalateApp() {
               {/* Action Buttons */}
               <div style={{ display: 'flex', gap: '12px' }}>
                 <InteractiveButton
-                  onClick={() => handleJoinTasting(selectedTasting)}
-                  disabled={isJoiningTasting || tastingQualification?.status !== 'qualified'}
+                  onClick={() => {
+                    if (tastingQualification?.status === 'signed_out') {
+                      window.location.href = '/api/auth/login';
+                      return;
+                    }
+                    if (tastingQualification?.status === 'qualified') {
+                      handleJoinTasting(selectedTasting);
+                    }
+                  }}
+                  disabled={isJoiningTasting || !['qualified', 'signed_out'].includes(tastingQualification?.status || '')}
                   variant="primary"
                   style={{
                     flex: 1,
@@ -3097,16 +3190,18 @@ export default function BlackPalateApp() {
                   {isJoiningTasting
                     ? 'Applying...'
                     : tastingQualification?.status === 'loading' || !tastingQualification
-                      ? 'Checking qualification...'
+                      ? 'Checking eligibility...'
                       : tastingQualification.status === 'qualified'
                         ? 'Apply to this tasting'
                         : tastingQualification.status === 'already_applied'
                           ? 'Applied'
-                          : tastingQualification.status === 'error'
-                            ? 'Verification unavailable'
-                            : tastingQualification.status === 'unauthenticated'
-                              ? 'Sign in to check qualification'
-                              : 'Not eligible for this tasting'}
+                          : tastingQualification.status === 'signed_out'
+                            ? 'Connect Blackbird'
+                            : tastingQualification.status === 'not_qualified'
+                              ? 'Not eligible for this tasting'
+                              : tastingQualification.status === 'campaign_not_found'
+                                ? 'Tasting unavailable'
+                                : 'Verification unavailable'}
                 </InteractiveButton>
                 <InteractiveButton
                   onClick={() => {
