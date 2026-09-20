@@ -10,16 +10,19 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const campaignId = decodeURIComponent(
+      new URL(req.url).pathname.split('/').filter(Boolean).pop() || ''
+    );
     // Detail must resolve from the same authoritative campaign collection as
     // Discover so a listed campaign can never disappear at this boundary.
     const campaigns = await db.getCampaigns();
-    const campaign = campaigns.find((candidate) => candidate.id === params.id) || null;
+    const campaign = campaigns.find((candidate) => candidate.id === campaignId) || null;
     if (!campaign) {
       return safeError(404, 'NOT_FOUND');
     }
 
-    const applications = await db.getApplications(params.id);
-    const feedbacks = await db.getFeedbacks(params.id);
+    const applications = await db.getApplications(campaignId);
+    const feedbacks = await db.getFeedbacks(campaignId);
 
     return NextResponse.json(
       {
