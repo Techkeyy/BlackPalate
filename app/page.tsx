@@ -225,12 +225,12 @@ export default function BlackPalateApp() {
     ] as Question[],
   });
 
-  // AI Assistant State
-  const [aiPromptText, setAiPromptText] = useState(
+  // Suggested draft helper state
+  const [draftPromptText, setDraftPromptText] = useState(
     'We are testing an artisan smash burger and want 6 diners who eat burgers frequently to tell us if $22 is too expensive.'
   );
-  const [isAiDrafting, setIsAiDrafting] = useState(false);
-  const [aiDraftMode, setAiDraftMode] = useState<string | null>(null);
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
+  const [draftMode, setDraftMode] = useState<string | null>(null);
 
   // Restaurant Studio Synthesis View
   const [selectedStudioCampaign, setSelectedStudioCampaign] = useState<Campaign | null>(null);
@@ -830,58 +830,42 @@ export default function BlackPalateApp() {
     }
   }
 
-  // Handle AI Campaign Drafting
-  async function handleDraftWithAi() {
-    setIsAiDrafting(true);
+  // Generate a deterministic starting point from the campaign template.
+  function handleSuggestedDraft() {
+    setIsGeneratingDraft(true);
     setStatusBanner({
       type: 'info',
-      text: 'Consulting BlackPalate AI Culinary Strategist...',
+      text: 'Generating a suggested draft from the campaign template...',
     });
-    try {
-      const res = await fetch('/api/ai/draft-campaign', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          restaurantName: newCampaign.restaurantName,
-          dishName: newCampaign.dishFocus,
-          cuisine: newCampaign.cuisine,
-          conceptNotes: aiPromptText,
-          budgetFly: Number(newCampaign.rewardFly) || 25,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok && data.draft) {
-        const d = data.draft;
-        setNewCampaign((prev) => ({
-          ...prev,
-          dishFocus: d.dishFocus || prev.dishFocus,
-          researchGoal: d.description || prev.researchGoal,
-          minTotalCheckIns: d.minTotalCheckIns || 2,
-          minCuisineVisits: d.minCuisineVisits || 1,
-          mustBeNewToVenue: d.mustBeNewToVenue ?? false,
-          rewardFly: String(d.rewardFly || prev.rewardFly),
-          maxSlots: d.maxSlots || prev.maxSlots,
-          questions: d.feedbackQuestions?.length ? d.feedbackQuestions : prev.questions,
-        }));
-        setAiDraftMode(
-          data.meta?.mode === 'ai'
-            ? `AI (${data.meta.provider})`
-            : 'BlackPalate Template'
-        );
-        setStatusBanner({
-          type: 'success',
-          text:
-            data.meta?.mode === 'ai'
-              ? `Mission drafted by AI (${data.meta.provider})`
-              : 'Mission drafted from BlackPalate culinary research template.',
-        });
-        setBuilderStep(7); // Jump to preview
-      }
-    } catch (err: any) {
-      setStatusBanner({ type: 'warning', text: `Drafting failed: ${err.message}` });
-    } finally {
-      setIsAiDrafting(false);
-    }
+
+    const cuisine = newCampaign.cuisine || activeWorkspace?.cuisine?.[0] || 'Fine Dining';
+    const dishFocus = newCampaign.dishFocus || 'Seasonal tasting dish';
+    const restaurant = newCampaign.restaurantName || activeWorkspace?.name || 'your restaurant';
+    const conceptNotes = draftPromptText.trim();
+
+    setNewCampaign((prev) => ({
+      ...prev,
+      restaurantName: prev.restaurantName || activeWorkspace?.name || '',
+      dishFocus: prev.dishFocus || dishFocus,
+      researchGoal:
+        prev.researchGoal ||
+        (conceptNotes ||
+          `Collect structured feedback on ${dishFocus} from verified ${cuisine} diners at ${restaurant}.`),
+      cuisine: prev.cuisine || cuisine,
+      minTotalCheckIns: prev.minTotalCheckIns || 2,
+      minCuisineVisits: prev.minCuisineVisits || 1,
+      mustBeNewToVenue: prev.mustBeNewToVenue ?? false,
+      rewardFly: prev.rewardFly || '10',
+      maxSlots: prev.maxSlots || 8,
+      questions: prev.questions,
+    }));
+    setDraftMode('Template suggestion');
+    setStatusBanner({
+      type: 'success',
+      text: 'Suggested draft generated from the campaign template. Review it before publishing.',
+    });
+    setBuilderStep(7);
+    setIsGeneratingDraft(false);
   }
 
   // Workspace creation state
@@ -1073,11 +1057,7 @@ export default function BlackPalateApp() {
       if (data.ok) {
         setStudioSynthesis(data.report);
         setStudioSubmissions(data.submissions || []);
-        setSynthesisMode(
-          data.meta?.mode === 'ai'
-            ? `AI (${data.meta.provider})`
-            : 'Statistical Template'
-        );
+        setSynthesisMode('Recorded feedback summary');
       }
     } catch (err) {
       console.error('Synthesis error:', err);
@@ -1134,6 +1114,15 @@ export default function BlackPalateApp() {
       setStudioApplications([]);
     }
   }, [authRole, activeWorkspace?.id, campaigns, selectedStudioCampaign?.id]);
+
+  useEffect(() => {
+    if (!selectedTasting) return;
+    if (!campaigns.some((campaign) => campaign.id === selectedTasting.id)) {
+      setSelectedTasting(null);
+      setTastingQualification(null);
+      setJoinError(null);
+    }
+  }, [campaigns, selectedTasting?.id]);
 
   return (
     <div
@@ -2247,8 +2236,8 @@ export default function BlackPalateApp() {
                   >
                     Eliminate guesswork when launching new dishes, testing seasonal
                     recipes, or adjusting price points. Draft research missions in
-                    minutes with BlackPalate AI and analyze executive culinary
-                    synthesis reports.
+                    minutes with a structured template helper and review feedback
+                    summaries built from recorded responses.
                   </p>
 
                   <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
@@ -2304,7 +2293,7 @@ export default function BlackPalateApp() {
                           color: '#F5F5F4',
                         }}
                       >
-                        Executive Culinary Synthesis
+                        Research workflow
                       </span>
                     </div>
                     <span
@@ -2316,7 +2305,7 @@ export default function BlackPalateApp() {
                         borderRadius: '4px',
                       }}
                     >
-                      DeepSeek AI
+                      Deterministic
                     </span>
                   </div>
 
@@ -2328,10 +2317,9 @@ export default function BlackPalateApp() {
                       marginBottom: '16px',
                     }}
                   >
-                    <strong style={{ color: '#F59E0B' }}>Consensus Takeaway:</strong>{' '}
-                    87% of verified Italian dining enthusiasts approved the
-                    guanciale cut thickness, but recommended raising pecorino ratio
-                    by 10% to balance egg yolk richness.
+                    <strong style={{ color: '#F59E0B' }}>How it works:</strong>{' '}
+                    Campaign rules are evaluated against verified diner history,
+                    and feedback summaries use recorded production responses.
                   </div>
 
                   <div
@@ -2356,10 +2344,10 @@ export default function BlackPalateApp() {
                           color: '#10B981',
                         }}
                       >
-                        4.8/5
+                        Verified
                       </div>
                       <div style={{ fontSize: '11px', color: '#78716C' }}>
-                        Flavor Score
+                        history
                       </div>
                     </div>
                     <div
@@ -2376,10 +2364,10 @@ export default function BlackPalateApp() {
                           color: '#F59E0B',
                         }}
                       >
-                        $36
+                        Rule-based
                       </div>
                       <div style={{ fontSize: '11px', color: '#78716C' }}>
-                        Optimal Price
+                        qualification
                       </div>
                     </div>
                     <div
@@ -2396,10 +2384,10 @@ export default function BlackPalateApp() {
                           color: '#F5F5F4',
                         }}
                       >
-                        100%
+                        Recorded
                       </div>
                       <div style={{ fontSize: '11px', color: '#78716C' }}>
-                        Verified Diners
+                        feedback
                       </div>
                     </div>
                   </div>
@@ -3942,7 +3930,7 @@ export default function BlackPalateApp() {
               />
             )}
 
-          {/* AI Drafting Assistant Callout */}
+          {/* Suggested Draft Helper */}
           <div
             style={{
               backgroundColor: '#121212',
@@ -3971,10 +3959,10 @@ export default function BlackPalateApp() {
                     color: '#F59E0B',
                   }}
                 >
-                  BlackPalate AI Culinary Strategist
+                  Suggested Draft Helper
                 </span>
               </div>
-              {aiDraftMode && (
+              {draftMode && (
                 <span
                   style={{
                     fontSize: '11px',
@@ -3984,21 +3972,21 @@ export default function BlackPalateApp() {
                     backgroundColor: '#78350F',
                   }}
                 >
-                  {aiDraftMode}
+                  {draftMode}
                 </span>
               )}
             </div>
 
             <p style={{ fontSize: '13px', color: '#A8A29E', margin: 0 }}>
-              Describe your dish concept and testing goals in plain English. The AI
-              will formulate all parameters and customized questions instantly.
+              Describe your dish concept and testing goals in plain English. The
+              template helper will prefill a starting point for your review.
             </p>
 
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <input
                 type="text"
-                value={aiPromptText}
-                onChange={(e) => setAiPromptText(e.target.value)}
+                value={draftPromptText}
+                onChange={(e) => setDraftPromptText(e.target.value)}
                 placeholder="e.g. We have a wood-fired duck breast and want 8 fine dining regulars to evaluate glaze acid..."
                 style={{
                   flex: 1,
@@ -4012,12 +4000,12 @@ export default function BlackPalateApp() {
                 }}
               />
               <InteractiveButton
-                disabled={isAiDrafting}
-                onClick={handleDraftWithAi}
+                disabled={isGeneratingDraft}
+                onClick={handleSuggestedDraft}
                 variant="primary"
                 style={{ padding: '10px 18px', fontSize: '13px' }}
               >
-                {isAiDrafting ? 'Drafting Mission...' : 'Generate with AI'}
+                {isGeneratingDraft ? 'Generating Draft...' : 'Generate Suggested Draft'}
               </InteractiveButton>
             </div>
           </div>
@@ -4996,11 +4984,11 @@ export default function BlackPalateApp() {
                   color: '#F5F5F4',
                 }}
               >
-                Restaurant Campaign Dashboard &amp; AI Synthesis
+                Restaurant Campaign Dashboard &amp; Feedback Summary
               </h2>
               <p style={{ fontSize: '14px', color: '#A8A29E', margin: 0 }}>
-                Review active campaigns, qualified participant cohorts, and executive
-                culinary intelligence.
+                Review active campaigns, qualified participant cohorts, and feedback
+                summaries built from recorded responses.
               </p>
             </div>
 
@@ -5129,7 +5117,7 @@ export default function BlackPalateApp() {
               </div>
             </div>
 
-            {/* Main Area: AI Synthesis & Raw Responses */}
+            {/* Main Area: Feedback Summary & Raw Responses */}
             <div
               style={{
                 backgroundColor: '#121212',
@@ -5185,7 +5173,7 @@ export default function BlackPalateApp() {
                           backgroundColor: '#78350F',
                         }}
                       >
-                        Mode: {synthesisMode}
+                        Feedback summary
                       </span>
                     )}
                   </div>
@@ -5673,7 +5661,8 @@ export default function BlackPalateApp() {
               The Flynet Make dashboard currently prevents application and API key
               minting. All credential-independent product flows (marketplace
               discovery, campaign creation, deterministic qualification engine,
-              feedback storage, and AI synthesis) are operational and hardened.
+              feedback storage, and recorded feedback summaries) are operational
+              and hardened.
               Live token exchange will execute immediately upon Blackbird approval.
             </p>
           </div>
@@ -5776,10 +5765,10 @@ export default function BlackPalateApp() {
                   }}
                 >
                   <td style={{ padding: '12px 10px', fontWeight: '600' }}>
-                    AI Assistant &amp; Synthesis
+                    Campaign drafting &amp; feedback summary
                   </td>
                   <td style={{ padding: '12px 10px' }}>
-                    <code>lib/ai.ts</code>
+                    <code>template helper / recorded data</code>
                   </td>
                   <td
                     style={{
@@ -5788,7 +5777,7 @@ export default function BlackPalateApp() {
                       fontWeight: '700',
                     }}
                   >
-                    COMPONENT PROVEN (Transparent Mode)
+                    AVAILABLE (TEMPLATE + DATA)
                   </td>
                 </tr>
                 <tr

@@ -263,6 +263,37 @@ let inMemoryFeedbacks: FeedbackSubmission[] = [];
 let inMemoryReceipts: RewardReceipt[] = [];
 let inMemorySynthesis: SynthesisReport[] = [];
 
+function mapCampaignRow(r: any): Campaign {
+  return {
+    id: r.id,
+    title: r.title,
+    description: r.description,
+    dishFocus: r.dish_focus,
+    researchGoal: r.research_goal,
+    restaurantId: r.restaurant_id,
+    restaurantName: r.restaurantName || 'Restaurant Partner',
+    restaurantCuisine: r.restaurantCuisine || [],
+    location: r.location || r.restaurantNeighborhood || 'NYC',
+    timing: r.timing || 'Flexible schedule',
+    timeCommitment: r.time_commitment || '45 minutes',
+    targetCuisines: r.target_cuisines || [],
+    minTotalCheckIns: r.min_total_check_ins,
+    minDistinctVenues: r.min_distinct_venues,
+    minCuisineVisits: r.min_cuisine_visits,
+    mustBeNewToVenue: r.must_be_new_to_venue,
+    rewardFly: r.reward_fly,
+    rewardFlyWei: r.reward_fly_wei,
+    maxSlots: r.max_slots,
+    filledSlots: r.filled_slots,
+    status: r.status,
+    isDemo: r.is_demo ?? false,
+    creatorKey: r.creator_key,
+    feedbackQuestions: r.feedback_questions || [],
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
 export const db = {
   // ==========================================
   // USERS & ACCOUNT SYSTEM
@@ -577,34 +608,7 @@ export const db = {
               ORDER BY c.created_at DESC
             `;
         if (rows) {
-          return rows.map((r: any) => ({
-            id: r.id,
-            title: r.title,
-            description: r.description,
-            dishFocus: r.dish_focus,
-            researchGoal: r.research_goal,
-            restaurantId: r.restaurant_id,
-            restaurantName: r.restaurantName || 'Restaurant Partner',
-            restaurantCuisine: r.restaurantCuisine || [],
-            location: r.location || r.restaurantNeighborhood || 'NYC',
-            timing: r.timing || 'Flexible schedule',
-            timeCommitment: r.time_commitment || '45 minutes',
-            targetCuisines: r.target_cuisines || [],
-            minTotalCheckIns: r.min_total_check_ins,
-            minDistinctVenues: r.min_distinct_venues,
-            minCuisineVisits: r.min_cuisine_visits,
-            mustBeNewToVenue: r.must_be_new_to_venue,
-            rewardFly: r.reward_fly,
-            rewardFlyWei: r.reward_fly_wei,
-            maxSlots: r.max_slots,
-            filledSlots: r.filled_slots,
-            status: r.status,
-            isDemo: r.is_demo ?? false,
-            creatorKey: r.creator_key,
-            feedbackQuestions: r.feedback_questions || [],
-            createdAt: r.created_at,
-            updatedAt: r.updated_at,
-          }));
+          return rows.map(mapCampaignRow);
         }
       } catch (err: any) {
         if (process.env.NODE_ENV === 'production') {
@@ -619,8 +623,25 @@ export const db = {
   },
 
   async getCampaignById(id: string): Promise<Campaign | null> {
-    const campaigns = await this.getCampaigns();
-    return campaigns.find(c => c.id === id) || null;
+    checkDatabaseConfig();
+    const sql = getDbClient();
+    if (sql) {
+      try {
+        const rows = await sql`
+          SELECT c.*, r.name as "restaurantName", r.cuisine as "restaurantCuisine", r.neighborhood as "restaurantNeighborhood"
+          FROM campaigns c
+          LEFT JOIN restaurants r ON c.restaurant_id = r.id
+          WHERE c.id = ${id}
+          LIMIT 1
+        `;
+        return rows?.[0] ? mapCampaignRow(rows[0]) : null;
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Database query failed: ${err.message}`);
+        }
+      }
+    }
+    return inMemoryCampaigns.find(c => c.id === id) || null;
   },
 
   async createCampaign(campaign: Omit<Campaign, 'id' | 'createdAt' | 'updatedAt' | 'filledSlots'>): Promise<Campaign> {

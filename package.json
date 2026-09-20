@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:unit": "node lib/campaign.test.mjs && node lib/qualification.test.mjs && node lib/marketplace-workflow.test.mjs && node lib/diner-qualification.test.mjs && node lib/qualification-ui.test.mjs",
+    "test:unit": "node lib/campaign.test.mjs && node lib/qualification.test.mjs && node lib/marketplace-workflow.test.mjs && node lib/diner-qualification.test.mjs && node lib/qualification-ui.test.mjs && node lib/campaign-lookup.test.mjs",
     "test:audit": "node lib/audit.test.mjs",
     "test:integration": "node lib/db.integration.test.mjs",
     "test:error-handling": "node --test lib/error-handling.test.mjs",

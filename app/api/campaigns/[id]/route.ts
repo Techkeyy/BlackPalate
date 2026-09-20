@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { safeError, safeCatch } from '@/lib/api-errors';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   req: Request,
   { params }: { params: { id: string } }
@@ -25,4 +27,3 @@ export async function GET(
     return safeCatch(err);
   }
 }
-
