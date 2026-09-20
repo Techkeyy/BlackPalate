@@ -141,7 +141,7 @@ type TastingQualificationState = {
   message?: string;
 };
 export default function BlackPalateApp() {
-  const [activeNav, setActiveNav] = useState<
+  const [activeNav, setRawActiveNav] = useState<
     'landing' | 'discover' | 'my-tastings' | 'create-tasting' | 'campaign-studio' | 'diagnostics' | 'live-demo'
   >('landing');
 
@@ -155,10 +155,13 @@ export default function BlackPalateApp() {
   const [userApplications, setUserApplications] = useState<Application[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [sessionUser, setSessionUser] = useState<any>(null);
-  const [authRole, setAuthRole] = useState<'RESTAURANT' | 'DINER' | null>(null);
+  const [restaurantUser, setRestaurantUser] = useState<any>(null);
+  const [dinerUser, setDinerUser] = useState<any>(null);
+  const [hasDinerSession, setHasDinerSession] = useState(false);
+  const [hasRestaurantSession, setHasRestaurantSession] = useState(false);
+  const [activeMode, setActiveMode] = useState<'DINER' | 'RESTAURANT' | null>(null);
   const [operatorWorkspaces, setOperatorWorkspaces] = useState<any[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<any>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<UserSafeError | null>(null);
@@ -254,18 +257,33 @@ export default function BlackPalateApp() {
   const [demoCheckInId, setDemoCheckInId] = useState<string | null>(null);
   const [demoCampaignId, setDemoCampaignId] = useState<string | null>(null);
 
+  const authRole = activeMode;
+  const isAuthenticated = hasDinerSession || hasRestaurantSession;
+
+  function navigateTo(
+    nextNav: 'landing' | 'discover' | 'my-tastings' | 'create-tasting' | 'campaign-studio' | 'diagnostics' | 'live-demo'
+  ) {
+    setRawActiveNav(nextNav);
+    if (nextNav === 'discover' || nextNav === 'my-tastings') {
+      setActiveMode('DINER');
+    } else if (nextNav === 'create-tasting' || nextNav === 'campaign-studio') {
+      setActiveMode('RESTAURANT');
+    }
+  }
+  const setActiveNav = navigateTo;
+
   // Restaurant areas require a signed-in RESTAURANT operator; anything else sees the auth gate.
   // The gate NEVER renders while identity is still resolving (authLoading).
   const needsRestaurantGate = shouldShowRestaurantGate({
     activeNav,
-    isAuthenticated,
-    authRole,
+    hasRestaurantSession,
     authLoading,
   });
   const showAuthResolving = shouldShowAuthLoading({
     activeNav,
     authLoading,
-    isAuthenticated,
+    hasDinerSession,
+    hasRestaurantSession,
   });
 
   // Preserve restaurant intent across the Google redirect (sessionStorage survives same-origin navigation).
@@ -273,21 +291,21 @@ export default function BlackPalateApp() {
     try {
       if (
         (activeNav === 'create-tasting' || activeNav === 'campaign-studio') &&
-        !(isAuthenticated && authRole === 'RESTAURANT')
+        !hasRestaurantSession
       ) {
         sessionStorage.setItem('bp_pending_restaurant_nav', activeNav);
       }
     } catch {
       // Storage unavailable: intent simply won't survive the redirect.
     }
-  }, [activeNav, isAuthenticated, authRole]);
+  }, [activeNav, hasRestaurantSession]);
 
   function consumePendingRestaurantNav() {
     try {
       const pending = sessionStorage.getItem('bp_pending_restaurant_nav');
       sessionStorage.removeItem('bp_pending_restaurant_nav');
       if (pending === 'create-tasting' || pending === 'campaign-studio') {
-        setActiveNav(pending);
+        navigateTo(pending);
       }
     } catch {
       // Storage unavailable: stay on the current view.
@@ -447,28 +465,53 @@ export default function BlackPalateApp() {
         }).catch(() => null);
         if (meRes && meRes.ok) {
           const meData = await meRes.json();
-          if (meData.authenticated) {
-            setIsAuthenticated(true);
-            setAuthRole(meData.role);
-            setSessionUser(meData.user);
-            sessionOutcome = { authenticated: true, role: meData.role };
-            if (meData.role === 'RESTAURANT') {
-              setOperatorWorkspaces(meData.workspaces || []);
-              if (meData.workspaces?.length > 0) {
-                setActiveWorkspace(meData.workspaces[0]);
+          const dinerCapability = meData.identities?.diner?.authenticated
+            ? meData.identities.diner
+            : meData.role === 'DINER'
+              ? { authenticated: true, user: meData.user, profile: meData.profile, checkIns: meData.checkIns }
+              : null;
+          const restaurantCapability = meData.identities?.restaurant?.authenticated
+            ? meData.identities.restaurant
+            : meData.role === 'RESTAURANT'
+              ? { authenticated: true, user: meData.user, memberships: meData.memberships, workspaces: meData.workspaces }
+              : null;
+          const dinerAvailable = Boolean(dinerCapability?.authenticated);
+          const restaurantAvailable = Boolean(restaurantCapability?.authenticated);
+          const defaultMode: 'DINER' | 'RESTAURANT' | null = restaurantAvailable
+            ? 'RESTAURANT'
+            : dinerAvailable
+              ? 'DINER'
+              : null;
+
+          if (dinerAvailable || restaurantAvailable) {
+            setHasDinerSession(dinerAvailable);
+            setHasRestaurantSession(restaurantAvailable);
+            setDinerUser(dinerCapability?.user || null);
+            setRestaurantUser(restaurantCapability?.user || null);
+            setUserProfile(dinerCapability?.profile || null);
+            setSessionUser(defaultMode === 'RESTAURANT' ? restaurantCapability?.user : dinerCapability?.user);
+            if (!activeMode) setActiveMode(defaultMode);
+            sessionOutcome = { authenticated: true, role: defaultMode };
+
+            if (restaurantAvailable) {
+              const workspaces = restaurantCapability?.workspaces || [];
+              setOperatorWorkspaces(workspaces);
+              if (workspaces.length > 0) {
+                setActiveWorkspace(workspaces[0]);
               } else {
                 // A valid operator with no membership goes directly to the
                 // existing workspace-creation flow, never back to sign-in.
                 setIsCreatingWorkspaceModalOpen(true);
               }
               consumePendingRestaurantNav();
-            } else if (meData.role === 'DINER') {
-              setUserProfile(meData.profile);
             }
           } else {
-            setIsAuthenticated(false);
-            setAuthRole(null);
+            setHasDinerSession(false);
+            setHasRestaurantSession(false);
+            setActiveMode(null);
             setSessionUser(null);
+            setDinerUser(null);
+            setRestaurantUser(null);
           }
         }
       } finally {
@@ -587,9 +630,12 @@ export default function BlackPalateApp() {
     try {
       await authClient.signOut().catch(() => null);
       await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null);
-      setIsAuthenticated(false);
-      setAuthRole(null);
+      setHasDinerSession(false);
+      setHasRestaurantSession(false);
+      setActiveMode(null);
       setSessionUser(null);
+      setDinerUser(null);
+      setRestaurantUser(null);
       setUserProfile(null);
       setUserApplications([]);
       setOperatorWorkspaces([]);
@@ -612,7 +658,7 @@ export default function BlackPalateApp() {
   // Handle joining a tasting. The server re-checks identity, history, rules,
   // capacity, and duplicate application state authoritatively.
   async function handleJoinTasting(campaign: Campaign) {
-    if (!isAuthenticated || authRole !== 'DINER') {
+    if (!hasDinerSession) {
       const authErr = mapErrorToUserMessage('AUTH_REQUIRED', 'join_tasting');
       setJoinError(authErr);
       return;
@@ -755,7 +801,7 @@ export default function BlackPalateApp() {
       setTastingQualification({ status: 'loading' });
       return;
     }
-    if (!isAuthenticated || authRole !== 'DINER') {
+    if (!hasDinerSession) {
       setTastingQualification({
         status: 'signed_out',
         message: 'Sign in with Blackbird to check your qualification.',
@@ -773,7 +819,7 @@ export default function BlackPalateApp() {
       return;
     }
     loadTastingQualification(selectedTasting.id);
-  }, [selectedTasting?.id, qualificationRetry, isAuthenticated, authRole, authLoading, userApplications]);
+  }, [selectedTasting?.id, qualificationRetry, hasDinerSession, authRole, authLoading, userApplications]);
   // Handle submitting feedback
   async function handleSubmitFeedback(e: React.FormEvent) {
     e.preventDefault();
@@ -924,7 +970,7 @@ export default function BlackPalateApp() {
 
   // Handle Publishing Campaign (Strictly requires active workspace with OWNER/MANAGER role)
   async function handlePublishCampaign() {
-    if (!isAuthenticated || authRole !== 'RESTAURANT') {
+    if (!hasRestaurantSession) {
       const authErr = mapErrorToUserMessage('AUTH_REQUIRED', 'campaign_publish');
       setPublishError(authErr);
       setStatusBanner({
@@ -1100,12 +1146,12 @@ export default function BlackPalateApp() {
   });
 
   const studioCampaigns =
-    authRole === 'RESTAURANT' && activeWorkspace
+    hasRestaurantSession && activeWorkspace
       ? campaigns.filter(camp => camp.restaurantId === activeWorkspace.id)
       : [];
 
   useEffect(() => {
-    if (authRole !== 'RESTAURANT') return;
+    if (!hasRestaurantSession) return;
     const selectedStillBelongs = selectedStudioCampaign && studioCampaigns.some(
       camp => camp.id === selectedStudioCampaign.id
     );
@@ -1113,7 +1159,7 @@ export default function BlackPalateApp() {
       setSelectedStudioCampaign(studioCampaigns[0] || null);
       setStudioApplications([]);
     }
-  }, [authRole, activeWorkspace?.id, campaigns, selectedStudioCampaign?.id]);
+  }, [hasRestaurantSession, activeWorkspace?.id, campaigns, selectedStudioCampaign?.id]);
 
   useEffect(() => {
     if (!selectedTasting) return;
@@ -1331,7 +1377,7 @@ export default function BlackPalateApp() {
                   <span>
                     Operator:{' '}
                     <strong style={{ color: '#F59E0B' }}>
-                      {sessionUser?.displayName || 'Operator'}
+                      {restaurantUser?.displayName || 'Operator'}
                     </strong>
                   </span>
                 </div>
@@ -1419,7 +1465,7 @@ export default function BlackPalateApp() {
                 <span>
                   Blackbird:{' '}
                   <strong style={{ color: '#F5F5F4' }}>
-                    {sessionUser?.displayName || userProfile?.name}
+                    {dinerUser?.displayName || userProfile?.name || 'Blackbird Member'}
                   </strong>
                 </span>
               </div>
@@ -2602,7 +2648,7 @@ export default function BlackPalateApp() {
                     <p style={{ fontSize: '14px', color: '#A8A29E', margin: '0 0 20px 0' }}>
                       New restaurant research opportunities will appear here.
                     </p>
-                    {isAuthenticated && authRole === 'RESTAURANT' && (
+                    {hasRestaurantSession && (
                       <InteractiveButton
                         onClick={() => setActiveNav('create-tasting')}
                         variant="primary"
@@ -3253,7 +3299,7 @@ export default function BlackPalateApp() {
               >
                 Finishing sign-in...
               </div>
-            ) : !isAuthenticated ? (
+            ) : !hasDinerSession ? (
               <div
                 style={{
                   textAlign: 'center',

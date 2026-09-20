@@ -11,22 +11,28 @@ export function isRestaurantArea(nav: string): nav is RestaurantArea {
 
 export function shouldShowRestaurantGate(opts: {
   activeNav: string;
-  isAuthenticated: boolean;
-  authRole: string | null;
+  hasRestaurantSession?: boolean;
+  isAuthenticated?: boolean;
+  authRole?: string | null;
   authLoading: boolean;
 }): boolean {
   if (!isRestaurantArea(opts.activeNav)) return false;
   if (opts.authLoading) return false;
-  return !(opts.isAuthenticated && opts.authRole === 'RESTAURANT');
+  const hasRestaurantSession = opts.hasRestaurantSession ??
+    Boolean(opts.isAuthenticated && opts.authRole === 'RESTAURANT');
+  return !hasRestaurantSession;
 }
 
 export function shouldShowAuthLoading(opts: {
   activeNav: string;
   authLoading: boolean;
-  isAuthenticated: boolean;
+  hasDinerSession?: boolean;
+  hasRestaurantSession?: boolean;
+  isAuthenticated?: boolean;
 }): boolean {
   if (!opts.authLoading) return false;
-  if (opts.isAuthenticated) return false;
+  const hasAnySession = opts.hasDinerSession || opts.hasRestaurantSession || opts.isAuthenticated;
+  if (hasAnySession) return false;
   // Restaurant areas and diner tastings both wait for identity before gating.
   return isRestaurantArea(opts.activeNav) || opts.activeNav === 'my-tastings';
 }

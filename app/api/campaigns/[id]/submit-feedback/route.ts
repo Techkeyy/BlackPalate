@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/repository';
 import { createFlynetDiscoveryClient } from '@/lib/flynet';
-import { resolveRequestIdentity } from '@/lib/auth/resolve';
+import { resolveFlynetDinerIdentity } from '@/lib/auth/diner';
 import { safeError, safeCatch } from '@/lib/api-errors';
 
 export async function POST(
@@ -15,10 +15,10 @@ export async function POST(
       return safeError(400, 'VALIDATION');
     }
 
-    // 1. Authenticate the diner through the shared identity service
-    // (same session source as /api/auth/me and /api/user/tastings).
-    const identity = await resolveRequestIdentity(req);
-    if (!identity.authenticated || identity.role !== 'DINER') {
+    // 1. Authenticate the diner through Flynet directly. A simultaneous Neon
+    // operator session must never change this route's identity boundary.
+    const identity = await resolveFlynetDinerIdentity(req);
+    if (!identity.authenticated) {
       return safeError(401, 'UNAUTHORIZED', 'feedback without Blackbird session');
     }
 

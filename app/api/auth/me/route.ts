@@ -19,6 +19,13 @@ import { logOAuthPhase } from '@/lib/auth/oauth-diagnostics';
 export const dynamic = 'force-dynamic';
 
 type RefreshedCookies = ReturnType<typeof flynetLoginCookies>;
+type RestaurantIdentity = Extract<RequestIdentity, { role: 'RESTAURANT' }>;
+type DinerIdentity = Extract<RequestIdentity, { role: 'DINER' }>;
+
+type DualIdentityResolution = {
+  restaurant: RestaurantIdentity | null;
+  diner: RequestIdentity;
+};
 
 function replaceAccessCookie(header: string | null, accessToken: string): string {
   const parts = (header || '')
@@ -98,7 +105,7 @@ async function resolveDirectDinerIdentity(req: Request): Promise<RequestIdentity
   };
 }
 
-async function resolveIdentityDirect(req: Request): Promise<RequestIdentity> {
+async function resolveIdentityDirect(req: Request): Promise<DualIdentityResolution> {
   let operator = null;
   try {
     operator = await getAuthenticatedOperator(req);
@@ -106,26 +113,26 @@ async function resolveIdentityDirect(req: Request): Promise<RequestIdentity> {
     operator = null;
   }
 
-  // A valid Neon session has precedence. An absent/invalid Neon session must
-  // fall through to the proven Flynet member path.
-  if (operator) {
-    return {
-      authenticated: true,
-      role: 'RESTAURANT',
-      user: operator.user,
-      neonAuthUserId: operator.neonAuthUserId,
-      memberships: operator.memberships,
-    };
-  }
-
-  return resolveDirectDinerIdentity(req);
+  const diner = await resolveDirectDinerIdentity(req);
+  return {
+    restaurant: operator
+      ? {
+          authenticated: true,
+          role: 'RESTAURANT',
+          user: operator.user,
+          neonAuthUserId: operator.neonAuthUserId,
+          memberships: operator.memberships,
+        }
+      : null,
+    diner,
+  };
 }
 
 async function resolveWithRefresh(req: Request): Promise<{
-  identity: RequestIdentity;
+  identities: DualIdentityResolution;
   refreshedCookies: RefreshedCookies | null;
 }> {
-  let identity = await resolveIdentityDirect(req);
+  let identities = await resolveIdentityDirect(req);
   const cookieHeader = req.headers.get('cookie');
   const accessCookiePresent = Boolean(getCookie(cookieHeader, ACCESS_COOKIE_NAME));
   const refreshToken = getCookie(cookieHeader, REFRESH_COOKIE_NAME);
@@ -135,16 +142,16 @@ async function resolveWithRefresh(req: Request): Promise<{
 
   // Preserve the existing refresh behavior; only an explicitly invalid raw
   // access token may trigger it.
-  if (!identity.authenticated && identity.failure === 'invalid_token' && refreshToken) {
+  if (!identities.diner.authenticated && identities.diner.failure === 'invalid_token' && refreshToken) {
     refreshAttempted = true;
     try {
       const tokens = await createFlynetOAuth().refresh({ refreshToken });
       const cookies = flynetLoginCookies(tokens, process.env.NODE_ENV === 'production');
       const headers = new Headers(req.headers);
       headers.set('cookie', replaceAccessCookie(cookieHeader, cookies.access.value));
-      const refreshedIdentity = await resolveIdentityDirect(new Request(req, { headers }));
-      if (refreshedIdentity.authenticated) {
-        identity = refreshedIdentity;
+      const refreshedIdentities = await resolveIdentityDirect(new Request(req, { headers }));
+      if (refreshedIdentities.diner.authenticated) {
+        identities = refreshedIdentities;
         refreshedCookies = cookies;
         refreshSucceeded = true;
       }
@@ -153,18 +160,28 @@ async function resolveWithRefresh(req: Request): Promise<{
     }
   }
 
+  const dinerAuthenticated = identities.diner.authenticated;
+  const restaurantAuthenticated = Boolean(identities.restaurant);
+  const resolvedRole = restaurantAuthenticated && dinerAuthenticated
+    ? 'BOTH'
+    : restaurantAuthenticated
+      ? 'RESTAURANT'
+      : dinerAuthenticated
+        ? 'DINER'
+        : 'NONE';
+
   logOAuthPhase('session_resolution', {
     accessCookiePresent,
     refreshCookiePresent: Boolean(refreshToken),
     refreshAttempted,
     refreshSucceeded,
-    authenticated: identity.authenticated,
-    role: identity.authenticated ? identity.role : 'NONE',
-    failure: identity.authenticated ? 'none' : identity.failure || 'unknown',
-    status: identity.authenticated ? 200 : identity.upstreamStatus ?? 0,
+    authenticated: restaurantAuthenticated || dinerAuthenticated,
+    role: resolvedRole,
+    failure: dinerAuthenticated || restaurantAuthenticated ? 'none' : identities.diner.failure || 'unknown',
+    status: dinerAuthenticated || restaurantAuthenticated ? 200 : identities.diner.upstreamStatus ?? 0,
   });
 
-  return { identity, refreshedCookies };
+  return { identities, refreshedCookies };
 }
 
 function sanitizeFlynetProfile(profile: unknown): Record<string, string | null> {
@@ -208,10 +225,14 @@ function responseWithSessionCookies(
 }
 
 export async function GET(req: Request) {
-  const { identity, refreshedCookies } = await resolveWithRefresh(req);
+  const { identities, refreshedCookies } = await resolveWithRefresh(req);
+  const diner = identities.diner.authenticated
+    ? identities.diner as DinerIdentity
+    : null;
+  const restaurant = identities.restaurant;
 
-  if (!identity.authenticated) {
-    if (identity.failure === 'internal_user_resolution_failed') {
+  if (!restaurant && !diner) {
+    if (!identities.diner.authenticated && identities.diner.failure === 'internal_user_resolution_failed') {
       return responseWithSessionCookies(
         {
           authenticated: false,
@@ -234,32 +255,55 @@ export async function GET(req: Request) {
     );
   }
 
-  if (identity.role === 'RESTAURANT') {
-    const restaurants = await Promise.all(
-      identity.memberships.map(m => db.getRestaurantById(m.restaurantId))
-    );
-    return responseWithSessionCookies(
-      {
-        authenticated: true,
-        role: 'RESTAURANT',
-        user: identity.user,
-        memberships: identity.memberships,
-        workspaces: restaurants.filter(Boolean),
-      },
-      refreshedCookies
-    );
+  const restaurants = restaurant
+    ? await Promise.all(restaurant.memberships.map(m => db.getRestaurantById(m.restaurantId)))
+    : [];
+  const workspaces = restaurants.filter(Boolean);
+  const activeRole = restaurant ? 'RESTAURANT' : 'DINER';
+  const capabilityIdentities: Record<string, unknown> = {};
+
+  if (diner) {
+    capabilityIdentities.diner = {
+      authenticated: true,
+      user: diner.user,
+      profile: sanitizeFlynetProfile(diner.profile),
+      checkIns: diner.checkIns,
+      checkInsPagination: null,
+    };
+  }
+
+  if (restaurant) {
+    capabilityIdentities.restaurant = {
+      authenticated: true,
+      user: restaurant.user,
+      memberships: restaurant.memberships,
+      workspaces,
+    };
   }
 
   return responseWithSessionCookies(
     {
       authenticated: true,
-      role: 'DINER',
-      user: identity.user,
-      profile: sanitizeFlynetProfile(identity.profile),
-      checkIns: identity.checkIns,
-      checkInsPagination: null,
+      // Backwards-compatible top-level fields describe the current default
+      // context; `identities` is authoritative when both sessions exist.
+      role: activeRole,
+      activeRole,
+      user: activeRole === 'RESTAURANT' ? restaurant?.user : diner?.user,
+      identities: capabilityIdentities,
+      ...(restaurant
+        ? {
+            memberships: restaurant.memberships,
+            workspaces,
+          }
+        : {}),
+      ...(diner
+        ? {
+            profile: sanitizeFlynetProfile(diner.profile),
+            checkIns: diner.checkIns,
+            checkInsPagination: null,
+          }
+        : {}),
     },
     refreshedCookies
   );
 }
-
