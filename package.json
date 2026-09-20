@@ -14,7 +14,7 @@
     "test:live-demo": "node --test lib/live-demo.test.mjs",
     "test:auth": "node --test lib/auth/session.test.mjs",
     "test:oauth-diagnostics": "node --test lib/auth/oauth-diagnostics.test.mjs",
-    "test": "node lib/campaign.test.mjs && node lib/qualification.test.mjs && node lib/marketplace-workflow.test.mjs && node lib/audit.test.mjs && node lib/db.integration.test.mjs && node --test lib/error-handling.test.mjs && node --test lib/live-demo.test.mjs && node --test lib/auth/session.test.mjs && node --test lib/auth/oauth-diagnostics.test.mjs",
+    "test": "npm run test:unit && npm run test:audit && npm run test:integration && npm run test:error-handling && npm run test:live-demo && npm run test:auth && npm run test:oauth-diagnostics",
     "migrate": "node scripts/migrate.mjs",
     "doctor": "node scripts/doctor.mjs"
   },
